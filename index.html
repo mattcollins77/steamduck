@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <meta http-equiv="X-Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+
+  <title>Web Serial & Gamepad API</title>
+  <link href="node_modules/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="node_modules/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+  <style>
+    .button-list {
+      margin-top: 20px;
+    }
+
+    .button-list button {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+  </style>
+
+</head>
+
+<body class="container-fluid">
+  <div class="row py-3">
+    <div class="col-12 text-center">
+      <h1>Device Status: <strong id="device-status">Disconnected</strong></h1>
+      <button id="connect-button" class="btn btn-primary">Connect</button>
+    </div>
+  </div>
+  <div class="row">
+    <div id="gamepad-state" class="col-4 border p-3">
+      <h2>Button Presses</h2>
+      <div id="button-pressed" class="mb-3">No button pressed</div>
+      <div class="button-list">
+        <button class="btn btn-secondary" id="screen-btn-1">Button 1</button>
+        <button class="btn btn-secondary" id="screen-btn-2">Button 2</button>
+        <button class="btn btn-secondary" id="screen-btn-3">Button 3</button>
+        <button class="btn btn-secondary" id="screen-btn-4">Button 4</button>
+        <button class="btn btn-secondary" id="screen-btn-5">Button 5</button>
+        <button class="btn btn-secondary" id="screen-btn-6">Button 6</button>
+        <button class="btn btn-secondary" id="screen-btn-7">Button 7</button>
+        <button class="btn btn-secondary" id="screen-btn-8">Button 8</button>
+      </div>
+    </div>
+    <div id="scene-container" class="col-4 border p-3 text-center">
+
+    </div>
+    <div id="serial-output" class="col-4 border p-3">
+      <h2>Motor Values</h2>
+      <!-- Serial data will populate here -->
+    </div>
+  </div>
+</body>
+
+<script type="module" src="/src/renderer.js"></script>
+
+</html>
