@@ -1,0 +1,26 @@
+.layout-container {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  background-color: #1a1a2e;
+}
+
+.side-panel {
+  width: 33.33%;
+  padding: 15px;
+  border-right: 1px solid #2d3748;
+}
+
+.flex-1 {
+  width: 33.33% !important;
+  border-right: 1px solid #2d3748;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 15px 0;
+}
+
+.right-panel {
+  width: 33.33%;
+  border-right: none;
+}

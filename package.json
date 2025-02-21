@@ -1,0 +1,68 @@
+{
+  "name": "steamduck",
+  "version": "1.0.0",
+  "description": "A robot control interface for Steam Deck",
+  "main": "electron/main.js",
+  "homepage": "https://github.com/yourusername/steamduck",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "cross-env NODE_ENV=development concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "electron:build": "vite build && electron-builder",
+    "electron:preview": "vite build && electron .",
+    "start": "cross-env NODE_ENV=development concurrently \"vite\" \"electron .\"",
+    "make": "cross-env NODE_ENV=production vite build && cp -r public/* dist/ && electron-builder --config"
+  },
+  "build": {
+    "appId": "com.steamduck.app",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "public",
+        "to": "public",
+        "filter": ["**/*"]
+      }
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Utility",
+      "maintainer": "SteamDuck Team <steamduck@example.com>"
+    }
+  },
+  "keywords": [
+    "robot",
+    "control",
+    "steamdeck",
+    "gamepad"
+  ],
+  "author": {
+    "name": "SteamDuck Team",
+    "email": "steamduck@example.com"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.160.1",
+    "three-stdlib": "^2.35.13",
+    "urdf-loader": "^0.12.4",
+    "vite": "^6.1.0",
+    "web-serial-polyfill": "^1.0.15"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "wait-on": "^7.2.0",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}

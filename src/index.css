@@ -1,0 +1,622 @@
+@import "/bootstrap/dist/css/bootstrap.min.css";
+
+@font-face {
+  font-family: "VT323";
+  src: url("/fonts/VT323-Regular.ttf") format("truetype"); /* Or use 'woff' if applicable */
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Aurebesh";
+  src: url("/fonts/DroidobeshDepot-gxmVE.otf") format("opentype");
+}
+
+@keyframes scroll {
+  0% {
+    height: 0;
+  }
+  100% {
+    height: 100%;
+  }
+}
+
+@keyframes type {
+  from {
+    width: 0;
+  }
+}
+
+@keyframes flash {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1; /* Slightly brighter */
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+@keyframes flash2 {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7; /* Slightly brighter */
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes flash3 {
+  0% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1; /* Slightly brighter */
+  }
+  100% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes type2 {
+  0% {
+    width: 0;
+  }
+  50% {
+    width: 0;
+  }
+  100% {
+    width: 100;
+  }
+}
+
+@keyframes blink {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes scan {
+  from {
+    top: 0;
+  }
+  to {
+    top: 100%;
+  }
+}
+
+@keyframes flicker {
+  0% {
+    opacity: 0.15795;
+  }
+  5% {
+    opacity: 0.31511;
+  }
+  10% {
+    opacity: 0.94554;
+  }
+  15% {
+    opacity: 0.2469;
+  }
+  20% {
+    opacity: 0.62031;
+  }
+  25% {
+    opacity: 0.0293;
+  }
+  30% {
+    opacity: 0.00899;
+  }
+  35% {
+    opacity: 0.5344;
+  }
+  40% {
+    opacity: 0.12778;
+  }
+  45% {
+    opacity: 0.52042;
+  }
+  50% {
+    opacity: 0.3823;
+  }
+  55% {
+    opacity: 0.2198;
+  }
+  60% {
+    opacity: 0.9383;
+  }
+  65% {
+    opacity: 0.86615;
+  }
+  70% {
+    opacity: 0.68695;
+  }
+  75% {
+    opacity: 0.55749;
+  }
+  80% {
+    opacity: 0.96984;
+  }
+  85% {
+    opacity: 0.0361;
+  }
+  90% {
+    opacity: 0.24467;
+  }
+  95% {
+    opacity: 0.08351;
+  }
+  100% {
+    opacity: 0.54813;
+  }
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #1a1a2e;
+  color: #e0e0e0;
+  font-family: "VT323", monospace;
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+html,
+body {
+  background: #383838;
+  color: #00dd00;
+  font-size: 64.5%;
+  font-size: 1.4em;
+  font-family: "VT323", monospace;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  width: 1260px;
+}
+
+.mainbox {
+  border-radius: 10px;
+  border: 2px solid orange;
+  margin: 0px;
+  margin-bottom: 30px;
+  height: 600px;
+}
+
+h1,
+h2,
+h3 h4,
+h5,
+h6 {
+  font-weight: normal;
+  margin: 0;
+  text-transform: uppercase;
+}
+h4 b {
+  color: white;
+}
+a {
+  color: white;
+  text-decoration: none;
+}
+
+a:hover {
+  color: red;
+}
+.aurebesh-text {
+  font-family: "Aurebesh", sans-serif; /* Fallback to sans-serif */
+}
+
+.red-text {
+  color: red; /* Fallback to sans-serif */
+}
+
+.success::after {
+  content: " ✔️";
+  color: green; /* Adjust color if needed */
+  margin-left: 10px;
+}
+
+.error::after {
+  content: " ✖️";
+  color: red; /* Adjust color if needed */
+  margin-left: 10px;
+}
+.success {
+  color: inherit; /* Use the default text color */
+}
+
+.error {
+  color: red; /* Red text for errors */
+}
+
+.orange {
+  color: orange; /* Red text for errors */
+}
+
+.white {
+  color: white; /* Red text for errors */
+}
+
+.orangebox {
+  background-color: orange; /* Red text for errors */
+  border-radius: 5px;
+  padding: 5px;
+  margin-bottom: 10px;
+}
+
+.warningbox {
+  background-color: red; /* Red text for errors */
+  border-radius: 5px;
+  padding: 5px;
+  margin: 10px;
+  color: white;
+  display: inline-flex; /* Change to inline-flex for flexbox alignment */
+
+  vertical-align: middle;
+  animation: flash3 0.5s infinite ease-in-out; /* Add subtle flashing animation */
+  align-items: center; /* Center vertically */
+  justify-content: center; /* Center horizontally */
+}
+
+p {
+  line-height: 100%;
+  margin: 0;
+}
+
+span {
+  animation: blink 1s infinite;
+}
+
+ul {
+  list-style: none;
+}
+
+ul a:before,
+p a:before {
+  color: #00dd00;
+  content: " [ ";
+}
+
+ul a:after,
+p a:after {
+  color: #00dd00;
+  content: " ] ";
+}
+
+header.site {
+  margin: 0 0 40px 0;
+  text-transform: uppercase;
+}
+
+nav.site {
+  margin: 0 0 40px 0;
+  position: relative;
+  width: 100%;
+  z-index: 10;
+}
+
+nav.site ul {
+  padding: 0;
+}
+
+nav.site ul li {
+  display: inline-block;
+  padding: 0 10px;
+  min-width: 250px;
+  width: auto;
+}
+
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.15) 0px,
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  z-index: 10;
+}
+
+.overlay:before {
+  background: linear-gradient(#101010 0%, rgba(16, 16, 16, 0.2) 40%),
+    linear-gradient(
+      90deg,
+      rgba(255, 0, 0, 0.03),
+      rgba(0, 255, 0, 0.02),
+      rgba(0, 0, 255, 0.03)
+    );
+  background-size: 100% 3px, 6px 100%;
+  content: "";
+  display: block;
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+}
+
+.overlay:after {
+  animation: flicker 0.2s infinite;
+  background: rgba(16, 16, 16, 0.2);
+  content: "";
+  display: block;
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+}
+
+.scanline {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(32, 128, 32, 0.2) 10%,
+    transparent 100%
+  );
+  animation: scan 8s linear infinite;
+  pointer-events: none;
+  z-index: 11;
+}
+
+@keyframes scan {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+.col {
+  float: left;
+  padding: 0 20px;
+}
+
+.col.two {
+  width: auto;
+}
+
+.wrapper {
+  animation: scroll 2s 1;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.content {
+  animation: scroll 3s 1;
+  overflow: hidden;
+  padding: 40px;
+  position: relative;
+  width: 95%;
+}
+
+#logo-v {
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  width: 200px;
+}
+
+img.pip-hero {
+  display: block;
+  float: left;
+  height: auto;
+  margin: 5px 10px 5px 0;
+  width: 120px;
+}
+
+form {
+}
+
+label {
+  clear: left;
+  display: block;
+  float: left;
+  margin-right: 10px;
+  padding-top: 5px;
+}
+
+input[type="text"],
+textarea {
+  background: transparent;
+  border: none;
+  color: #00dd00;
+  display: block;
+  float: left;
+  font-family: "VT323", monospace;
+  font-size: 1.2em;
+  position: relative;
+  width: 80%;
+  z-index: 10;
+}
+
+textarea {
+  margin-bottom: 20px;
+  overflow: auto;
+  resize: none;
+}
+
+input[type="text"]:focus,
+textarea:focus,
+input[type="submit"]:focus,
+a.button:focus {
+  outline: 0;
+}
+
+input[type="submit"],
+a.button {
+  background: transparent;
+  border: 1px solid #00dd00;
+  clear: both;
+  color: #00dd00;
+  cursor: pointer;
+  display: inline-block;
+  font-family: "VT323", monospace;
+  font-size: 1em;
+  margin-bottom: 20px;
+  opacity: 0.9;
+  padding: 10px 100px;
+  position: relative;
+  text-decoration: none;
+  text-transform: uppercase;
+  z-index: 10;
+  animation: flash 1.5s infinite ease-in-out; /* Add subtle flashing animation */
+}
+a.buttonOrinGreen {
+  background: transparent;
+  border: 1px solid #00dd00;
+  clear: both;
+  color: #00dd00;
+  cursor: pointer;
+  display: inline-block;
+  font-family: "VT323", monospace;
+  font-size: 0.6em;
+  margin-bottom: 10px;
+  opacity: 0.9;
+  padding: 5px 20px;
+  position: relative;
+  text-decoration: none;
+  text-transform: uppercase;
+  z-index: 10;
+  animation: flash 1.5s infinite ease-in-out; /* Add subtle flashing animation */
+}
+
+a.buttonOrinRed {
+  background: transparent;
+  border: 1px solid red;
+  clear: both;
+  color: red;
+  cursor: pointer;
+  display: inline-block;
+  font-family: "VT323", monospace;
+  font-size: 0.6em;
+  margin-bottom: 10px;
+  opacity: 0.9;
+  padding: 5px 20px;
+  position: relative;
+  text-decoration: none;
+  text-transform: uppercase;
+  z-index: 10;
+  animation: flash 1.5s infinite ease-in-out; /* Add subtle flashing animation */
+}
+
+a.buttonAction {
+  background: transparent;
+  border: 1px solid orange;
+  border-radius: 4px;
+  clear: both;
+  color: orange;
+  cursor: pointer;
+  display: inline-flex; /* Change to inline-flex for flexbox alignment */
+  font-family: "VT323", monospace;
+  font-size: 1em;
+  margin-bottom: 10px;
+  opacity: 0.9;
+  padding: 5px 20px;
+  position: relative;
+  text-decoration: none;
+  text-transform: uppercase;
+  text-align: center;
+  z-index: 10;
+  width: 163px;
+  height: 80px;
+  vertical-align: middle;
+  animation: flash2 5s infinite ease-in-out; /* Add subtle flashing animation */
+  align-items: center; /* Center vertically */
+  justify-content: center; /* Center horizontally */
+}
+
+a.buttonActionRed {
+  background: transparent;
+  border: 1px solid red;
+  border-radius: 4px;
+  clear: both;
+  color: red;
+  cursor: pointer;
+  display: inline-block;
+  font-family: "VT323", monospace;
+  font-size: 1.4em;
+  margin-bottom: 10px;
+  opacity: 0.9;
+  padding: 5px 20px;
+  position: relative;
+  text-decoration: none;
+  text-transform: uppercase;
+  text-align: center;
+  z-index: 10;
+  width: 350px;
+  height: 80px;
+  margin-left: 20px;
+  vertical-align: middle;
+  animation: flash2 5s infinite ease-in-out; /* Add subtle flashing animation */
+  align-items: center; /* Center vertically */
+  justify-content: center; /* Center horizontally */
+}
+
+a.buttonAction:hover {
+  background: orange;
+  color: #383838;
+  opacity: 0.8;
+}
+
+a.buttonActionRed:hover {
+  background: red;
+  color: #383838;
+  opacity: 0.8;
+}
+
+input[type="submit"]:hover,
+a.button:hover {
+  background: #00dd00;
+  color: #383838;
+  opacity: 0.8;
+}
+
+.expandingArea {
+  position: relative;
+}
+
+.clear {
+  clear: both;
+}
+
+.clearfix {
+  overflow: auto;
+  zoom: 1;
+}
+
+.upper {
+  text-transform: uppercase;
+}
