@@ -14,31 +14,12 @@ A Steam Deck optimized controller application for the GoBDX robot, featuring a 3
 ## Installation on Steam Deck
 
 ### Prerequisites
-1. Enter Desktop Mode on your Steam Deck
-2. Ensure you have a USB-C hub with serial capability (if using wired connection)
 
 ### Installation Steps
 
-1. Download the latest `.AppImage` file from the releases page
-2. Make the AppImage executable:
-   ```bash
-   chmod +x steamduck-*.AppImage
-   ```
-3. Run the application:
-   ```bash
-   ./steamduck-*.AppImage
-   ```
 
 ### Adding to Steam
 
-To launch from Gaming Mode:
-
-1. In Desktop Mode, open Steam
-2. Click "Add a Game" in the bottom left
-3. Select "Add a Non-Steam Game"
-4. Browse and select the SteamDuck AppImage
-5. Return to Gaming Mode
-6. The app will appear in your library under "Non-Steam Games"
 
 ## Usage
 
