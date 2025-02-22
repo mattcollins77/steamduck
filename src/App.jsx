@@ -28,8 +28,16 @@ function App() {
   const lastTransmitTimeRef = useRef(0);
   const [sshProcess, setSshProcess] = useState(null);
   const [robotData, setRobotData] = useState(null);
-
+  const [teensyMode, setTeensyMode] = useState('A');  // Start assuming mode A
+  const [stickValues, setStickValues] = useState({
+    leftX: 0, leftY: 0,
+    rightX: 0, rightY: 0
+  });
   const robotViewerRef = useRef(null);
+  const lastStatusTimeRef = useRef(Date.now());
+
+  const PACKET_START = 0xAA;
+  const PACKET_END = 0x55;
 
   // Track when we get permission for ports
   useEffect(() => {
@@ -104,39 +112,179 @@ function App() {
     return () => clearInterval(interval);
   }, [writer, serialPort, isTransmitting]);
 
+  // Serial port reading
+  useEffect(() => {
+    if (!serialPort) return;
+
+    let reader;
+    const statusBuffer = [];
+
+    const processSerialData = async () => {
+      try {
+        reader = serialPort.readable.getReader();
+        
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          // Process each byte in the Uint8Array
+          for (let i = 0; i < value.length; i++) {
+            const byte = value[i];
+            if (byte === 0xBB) { // Status packet start
+              statusBuffer.length = 0;  // Clear buffer
+              statusBuffer.push(byte);
+            } else if (statusBuffer.length > 0) {
+              statusBuffer.push(byte);
+              if (statusBuffer.length === 7) { // Mode + 4 stick values + end byte
+                if (statusBuffer[6] === 0x55) { // Valid status packet
+                  const mode = String.fromCharCode(statusBuffer[1]);
+                  lastStatusTimeRef.current = Date.now(); // Update last status time
+                  setTeensyMode(mode);
+                  
+                  // Update stick values if pressed
+                  setStickValues({
+                    leftX: statusBuffer[2],
+                    leftY: statusBuffer[3],
+                    rightX: statusBuffer[4],
+                    rightY: statusBuffer[5]
+                  });
+                  
+                  console.log('Status received:', {
+                    mode,
+                    sticks: {
+                      leftX: statusBuffer[2],
+                      leftY: statusBuffer[3],
+                      rightX: statusBuffer[4],
+                      rightY: statusBuffer[5]
+                    }
+                  });
+                }
+                statusBuffer.length = 0;  // Clear buffer
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error reading serial:', err);
+        setTeensyMode('Q');
+      } finally {
+        if (reader) {
+          try {
+            await reader.cancel();
+            reader.releaseLock();
+          } catch (err) {
+            console.error('Error cleaning up reader:', err);
+          }
+        }
+      }
+    };
+
+    processSerialData();
+
+    return () => {
+      if (reader) {
+        reader.cancel();
+      }
+    };
+  }, [serialPort]);
+
+  // Add connection timeout check
+  useEffect(() => {
+    if (!serialPort) {
+      setTeensyMode('Q');
+      return;
+    }
+
+    const checkConnection = setInterval(() => {
+      // If no status received for 2 seconds, consider disconnected
+      if (Date.now() - lastStatusTimeRef.current > 2000) {
+        setTeensyMode('Q');
+      }
+    }, 1000);
+
+    return () => clearInterval(checkConnection);
+  }, [serialPort]);
+
+  // Transmit gamepad data
+  useEffect(() => {
+    if (!serialPort || !gamepadState) return;
+
+    const now = performance.now();
+    if (now - lastTransmitTimeRef.current < 50) return; // 20Hz rate limit
+    lastTransmitTimeRef.current = now;
+
+    // Create packet: START + data bytes + END
+    const packet = new Uint8Array([
+      PACKET_START,
+      // Analog sticks (0-255)
+      Math.round(((gamepadState.axes[0] + 1) / 2) * 255),  // Left X
+      Math.round(((gamepadState.axes[1] + 1) / 2) * 255),  // Left Y
+      Math.round(((gamepadState.axes[2] + 1) / 2) * 255),  // Right X
+      Math.round(((gamepadState.axes[3] + 1) / 2) * 255),  // Right Y
+      // Triggers (0-255)
+      Math.round(gamepadState.buttons[6]?.value * 255),     // Left Trigger
+      Math.round(gamepadState.buttons[7]?.value * 255),     // Right Trigger
+      // D-Pad (as individual bits)
+      ((gamepadState.buttons[12]?.pressed ? 1 : 0) << 0) | // Up
+      ((gamepadState.buttons[13]?.pressed ? 1 : 0) << 1) | // Down
+      ((gamepadState.buttons[14]?.pressed ? 1 : 0) << 2) | // Left
+      ((gamepadState.buttons[15]?.pressed ? 1 : 0) << 3),  // Right
+      // Face buttons and shoulders
+      ((gamepadState.buttons[0]?.pressed ? 1 : 0) << 0) |  // A
+      ((gamepadState.buttons[1]?.pressed ? 1 : 0) << 1) |  // B
+      ((gamepadState.buttons[2]?.pressed ? 1 : 0) << 2) |  // X
+      ((gamepadState.buttons[3]?.pressed ? 1 : 0) << 3) |  // Y
+      ((gamepadState.buttons[4]?.pressed ? 1 : 0) << 4) |  // LB
+      ((gamepadState.buttons[5]?.pressed ? 1 : 0) << 5) |  // RB
+      ((gamepadState.buttons[8]?.pressed ? 1 : 0) << 6) |  // Back/Select
+      ((gamepadState.buttons[9]?.pressed ? 1 : 0) << 7),   // Start
+      // Stick clicks
+      ((gamepadState.buttons[10]?.pressed ? 1 : 0) << 0) | // Left Stick
+      ((gamepadState.buttons[11]?.pressed ? 1 : 0) << 1),  // Right Stick
+      // On-screen buttons (10 bits)
+      (onScreenButtons.slice(0, 8).map((b, i) => (b ? 1 : 0) << i).reduce((a, b) => a | b, 0)),
+      (onScreenButtons.slice(8, 10).map((b, i) => (b ? 1 : 0) << i).reduce((a, b) => a | b, 0)),
+      PACKET_END
+    ]);
+
+    // Add to transmit queue instead of direct write
+    transmitQueue.current.push(packet);
+  }, [serialPort, gamepadState, onScreenButtons]);
+
   // Web Serial Connection
   const connectSerial = async () => {
     try {
       console.log("Requesting serial port...");
       
-      // Filter for Silicon Labs CP2102 USB-to-Serial
+      // Filter for your specific XBee's FTDI chip
       const port = await navigator.serial.requestPort({
-        filters: [{ 
-          usbVendorId: 0x10C4,
-          usbProductId: 0xEA60
-        }]
+        filters: [
+          { 
+            usbVendorId: 0x0403,  // FTDI
+            usbProductId: 0x6015   // Your XBee's FT231X
+          }
+        ]
+      });
+
+      // Log the detected device info
+      const info = port.getInfo();
+      console.log("Selected port info:", {
+        usbVendorId: info.usbVendorId?.toString(16),
+        usbProductId: info.usbProductId?.toString(16),
+        manufacturer: info.manufacturer
       });
       
-      console.log("Selected port:", {
-        usbProductId: port.getInfo().usbProductId,
-        usbVendorId: port.getInfo().usbVendorId
-      });
-      
-      // Open port at correct baud rate
-      await port.open({
-        baudRate: 9600,
+      await port.open({ 
+        baudRate: 57600,
         dataBits: 8,
         stopBits: 1,
         parity: "none",
         flowControl: "none"
       });
-      
-      console.log("Port opened successfully");
       setSerialPort(port);
-      console.log("Serial port connected");
-      
+      console.log("Serial port opened");
     } catch (error) {
-      console.error("Error connecting to serial:", error);
+      console.error('Error opening serial port:', error);
     }
   };
 
@@ -174,7 +322,7 @@ function App() {
     }
   }, [writer, sendTestPacket]);
 
-  // Transmit Gamepad Data
+  // Transmit Gamepad Data via XBee API mode
   const transmitGamepadData = useCallback(() => {
     if (!serialPort || !gamepadState.axes || !gamepadState.buttons) {
       return;
@@ -186,63 +334,43 @@ function App() {
     }
     lastTransmitTimeRef.current = now;
 
-    // Create packet
-    const packet = new Uint8Array(25);
-    packet[0] = 0x0F; // Start byte
-    
-    // Pack sticks (0-255)
-    for (let i = 0; i < 4; i++) {
-      packet[i + 1] = Math.round(((gamepadState.axes[i] + 1) / 2) * 255);
-    }
-
-    // Pack triggers (0-255)
-    packet[5] = Math.round(gamepadState.buttons[6]?.value * 255) || 0;
-    packet[6] = Math.round(gamepadState.buttons[7]?.value * 255) || 0;
-
-    // Pack all buttons into single bytes
-    let faceButtons = 0;
-    if (gamepadState.buttons[0]?.pressed) faceButtons |= 0x01; // A
-    if (gamepadState.buttons[1]?.pressed) faceButtons |= 0x02; // B
-    if (gamepadState.buttons[2]?.pressed) faceButtons |= 0x04; // X
-    if (gamepadState.buttons[3]?.pressed) faceButtons |= 0x08; // Y
-    if (gamepadState.buttons[4]?.pressed) faceButtons |= 0x10; // LB
-    if (gamepadState.buttons[5]?.pressed) faceButtons |= 0x20; // RB
-    packet[7] = faceButtons;
-
-    let specialButtons = 0;
-    if (gamepadState.buttons[8]?.pressed) specialButtons |= 0x01; // Back
-    if (gamepadState.buttons[9]?.pressed) specialButtons |= 0x02; // Start
-    if (gamepadState.buttons[10]?.pressed) specialButtons |= 0x04; // Left Stick
-    if (gamepadState.buttons[11]?.pressed) specialButtons |= 0x08; // Right Stick
-    packet[8] = specialButtons;
-
-    let dpadButtons = 0;
-    if (gamepadState.buttons[12]?.pressed) dpadButtons |= 0x01; // Up
-    if (gamepadState.buttons[13]?.pressed) dpadButtons |= 0x02; // Down
-    if (gamepadState.buttons[14]?.pressed) dpadButtons |= 0x04; // Left
-    if (gamepadState.buttons[15]?.pressed) dpadButtons |= 0x08; // Right
-    packet[9] = dpadButtons;
-
-    // Pack on-screen buttons
-    let screenButtons1 = 0;
-    let screenButtons2 = 0;
-    for (let i = 0; i < 8; i++) {
-      if (onScreenButtons[i]) screenButtons1 |= (1 << i);
-    }
-    for (let i = 0; i < 2; i++) {
-      if (onScreenButtons[i + 8]) screenButtons2 |= (1 << i);
-    }
-    packet[10] = screenButtons1;
-    packet[11] = screenButtons2;
-
-    // Fill remaining bytes with zeros
-    for (let i = 12; i < 25; i++) {
-      packet[i] = 0;
-    }
+    // Create packet: START + data bytes + END
+    const packet = new Uint8Array([
+      PACKET_START,
+      // Analog sticks (0-255)
+      Math.round(((gamepadState.axes[0] + 1) / 2) * 255),  // Left X
+      Math.round(((gamepadState.axes[1] + 1) / 2) * 255),  // Left Y
+      Math.round(((gamepadState.axes[2] + 1) / 2) * 255),  // Right X
+      Math.round(((gamepadState.axes[3] + 1) / 2) * 255),  // Right Y
+      // Triggers (0-255)
+      Math.round(gamepadState.buttons[6]?.value * 255),     // Left Trigger
+      Math.round(gamepadState.buttons[7]?.value * 255),     // Right Trigger
+      // D-Pad (as individual bits)
+      ((gamepadState.buttons[12]?.pressed ? 1 : 0) << 0) | // Up
+      ((gamepadState.buttons[13]?.pressed ? 1 : 0) << 1) | // Down
+      ((gamepadState.buttons[14]?.pressed ? 1 : 0) << 2) | // Left
+      ((gamepadState.buttons[15]?.pressed ? 1 : 0) << 3),  // Right
+      // Face buttons and shoulders
+      ((gamepadState.buttons[0]?.pressed ? 1 : 0) << 0) |  // A
+      ((gamepadState.buttons[1]?.pressed ? 1 : 0) << 1) |  // B
+      ((gamepadState.buttons[2]?.pressed ? 1 : 0) << 2) |  // X
+      ((gamepadState.buttons[3]?.pressed ? 1 : 0) << 3) |  // Y
+      ((gamepadState.buttons[4]?.pressed ? 1 : 0) << 4) |  // LB
+      ((gamepadState.buttons[5]?.pressed ? 1 : 0) << 5) |  // RB
+      ((gamepadState.buttons[8]?.pressed ? 1 : 0) << 6) |  // Back/Select
+      ((gamepadState.buttons[9]?.pressed ? 1 : 0) << 7),   // Start
+      // Stick clicks
+      ((gamepadState.buttons[10]?.pressed ? 1 : 0) << 0) | // Left Stick
+      ((gamepadState.buttons[11]?.pressed ? 1 : 0) << 1),  // Right Stick
+      // On-screen buttons (10 bits)
+      (onScreenButtons.slice(0, 8).map((b, i) => (b ? 1 : 0) << i).reduce((a, b) => a | b, 0)),
+      (onScreenButtons.slice(8, 10).map((b, i) => (b ? 1 : 0) << i).reduce((a, b) => a | b, 0)),
+      PACKET_END
+    ]);
 
     // Add to transmit queue
     transmitQueue.current.push(packet);
-  }, [serialPort, gamepadState, onScreenButtons]);
+  }, [serialPort, gamepadState]);
 
   // Rate-limited transmission
   useEffect(() => {
@@ -329,54 +457,6 @@ function App() {
       console.error("Error processing serial data:", error);
     }
   }, []);
-
-  // Setup serial port reader
-  useEffect(() => {
-    if (!serialPort) return;
-
-    let reader;
-    let decoder = new TextDecoder();
-    let buffer = '';
-
-    const readSerialData = async () => {
-      try {
-        reader = serialPort.readable.getReader();
-        
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          
-          // Convert received data to string and add to buffer
-          const chunk = decoder.decode(value);
-          buffer += chunk;
-          
-          // Process complete JSON messages
-          let newlineIndex;
-          while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-            const line = buffer.slice(0, newlineIndex);
-            buffer = buffer.slice(newlineIndex + 1);
-            if (line.trim()) {
-              handleRobotData(line);
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error reading serial data:", error);
-      } finally {
-        if (reader) {
-          reader.releaseLock();
-        }
-      }
-    };
-
-    readSerialData();
-
-    return () => {
-      if (reader) {
-        reader.cancel();
-      }
-    };
-  }, [serialPort, handleRobotData]);
 
   // SSH Connection for robot data
   const connectSSH = useCallback(async () => {
@@ -505,6 +585,21 @@ function App() {
       <div className="side-panel right-panel">
         <div className="status-section">
           <h2>Status</h2>
+          <div>
+            <h2>Connection Status</h2>
+            <p style={{
+              color: teensyMode === 'Q' ? '#e74c3c' : '#2ecc71'
+            }}>
+              {teensyMode === 'Q' ? 'Disconnected' : 'Connected'}
+            </p>
+            <p>Current Mode: {teensyMode}</p>
+            {(stickValues.leftX || stickValues.leftY) > 0 && (
+              <p>Left Stick: X={Math.round((stickValues.leftX / 255) * 100)}% Y={Math.round((stickValues.leftY / 255) * 100)}%</p>
+            )}
+            {(stickValues.rightX || stickValues.rightY) > 0 && (
+              <p>Right Stick: X={Math.round((stickValues.rightX / 255) * 100)}% Y={Math.round((stickValues.rightY / 255) * 100)}%</p>
+            )}
+          </div>
           {robotData && (
             <div style={{ color: '#fff' }}>
               Robot Connected
@@ -632,20 +727,26 @@ function App() {
             <div style={{ marginBottom: '5px' }}>
               <span style={{ color: '#bdc3c7' }}>Serial Packet Format:</span>
               <div style={{ marginLeft: '10px', fontFamily: 'monospace', fontSize: '0.9em' }}>
-                <div>Start: 0x0F</div>
-                <div>Left Stick: X={Math.round(((gamepadState.axes[0] || 0) + 1) / 2 * 255)} Y={Math.round(((gamepadState.axes[1] || 0) + 1) / 2 * 255)}</div>
-                <div>Right Stick: X={Math.round(((gamepadState.axes[2] || 0) + 1) / 2 * 255)} Y={Math.round(((gamepadState.axes[3] || 0) + 1) / 2 * 255)}</div>
+                <div>Start: 0x{PACKET_START.toString(16).padStart(2, '0')}</div>
+                <div>Left Stick: X={Math.round(((gamepadState.axes[0] || 0) + 1) / 2 * 127.5)} Y={Math.round(((gamepadState.axes[1] || 0) + 1) / 2 * 127.5)}</div>
+                <div>Right Stick: X={Math.round(((gamepadState.axes[2] || 0) + 1) / 2 * 127.5)} Y={Math.round(((gamepadState.axes[3] || 0) + 1) / 2 * 127.5)}</div>
                 <div>Triggers: L={Math.round((gamepadState.buttons[6]?.value || 0) * 255)} R={Math.round((gamepadState.buttons[7]?.value || 0) * 255)}</div>
                 <div>Button Byte: {
                   Array(6).fill(0)
                     .map((_, i) => gamepadState.buttons[i]?.pressed ? '1' : '0')
                     .join('')
                 } ({['A','B','X','Y','LB','RB'].filter((_, i) => gamepadState.buttons[i]?.pressed).join(',')})</div>
+                <div>Stick Clicks: {
+                  Array(2).fill(0)
+                    .map((_, i) => gamepadState.buttons[10 + i]?.pressed ? '1' : '0')
+                    .join('')
+                } ({['Left Stick','Right Stick'].filter((_, i) => gamepadState.buttons[10 + i]?.pressed).join(',')})</div>
                 <div>On-Screen: {
                   onScreenButtons
                     .map(b => b ? '1' : '0')
                     .join('')
                 }</div>
+                <div>End: 0x{PACKET_END.toString(16).padStart(2, '0')}</div>
               </div>
             </div>
           </div>
