@@ -8,7 +8,7 @@ private:
 
     static constexpr uint8_t PACKET_START = 0xAA;
     static constexpr uint8_t PACKET_END = 0x55;
-    static constexpr size_t PACKET_SIZE = 13;  // Start + 11 data bytes + End
+    static constexpr size_t PACKET_SIZE = 16;  // Start + 14 data bytes + End
     
     uint8_t receiveBuffer[PACKET_SIZE];
     size_t receiveIndex = 0;
@@ -18,7 +18,9 @@ private:
     uint32_t lastStatusTime = 0;
     uint32_t packetCount = 0;
     bool needsFullDisplay = true;
-    char currentMode = 'A';  // Start in mode A
+    char currentMode = 'P';  // Start in Perch mode
+    char requestedMode = 0;  // For pending mode changes
+    uint32_t modeChangeStartTime = 0;  // When mode change was requested
 
     void clearScreen() {
         Serial.write(27);    // ESC command
@@ -28,18 +30,44 @@ private:
     }
 
     void sendStatusPacket() {
-        uint8_t packet[] = {
-            0xBB,           // Different start byte for status
-            currentMode,    // Current mode
-            // Add joystick values when pressed
-            receiveBuffer[9] & 0x01 ? receiveBuffer[1] : 0,  // Left X if pressed
-            receiveBuffer[9] & 0x01 ? receiveBuffer[2] : 0,  // Left Y if pressed
-            receiveBuffer[9] & 0x02 ? receiveBuffer[3] : 0,  // Right X if pressed
-            receiveBuffer[9] & 0x02 ? receiveBuffer[4] : 0,  // Right Y if pressed
-            0x55           // End byte
-        };
-        Serial2.write(packet, sizeof(packet));
-        Serial2.flush();  // Make sure it's sent
+        // Create a JSON string with the current state
+        char jsonBuffer[256];
+        snprintf(jsonBuffer, sizeof(jsonBuffer),
+            "{\"mode\":\"%c\",\"requested_mode\":\"%c\",\"motors\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"sensors\":[{\"name\":\"imu\",\"roll\":0,\"pitch\":0,\"yaw\":0}]}\n",
+            currentMode,
+            requestedMode ? requestedMode : currentMode
+        );
+        
+        // Send the JSON string over both Serial ports
+        Serial.write(jsonBuffer);  // For debug monitor
+        Serial2.write(jsonBuffer); // For XBee
+        Serial2.flush();
+    }
+
+    void checkMode() {
+        // Check if there's a pending mode change
+        if (requestedMode != 0) {
+            if (millis() - modeChangeStartTime >= 1000) {  // 1 second delay
+                currentMode = requestedMode;
+                requestedMode = 0;  // Clear the request
+                needsFullDisplay = true;  // Force full display update
+                showStatus();  // Update debug display
+                sendStatusPacket();  // Send status packet after mode change
+            }
+            return;
+        }
+
+        // Check for new mode change request in the packet
+        if (receiveIndex >= PACKET_SIZE) {  // Only if we have a complete packet
+            char newMode = receiveBuffer[15];  // Mode is in byte 15
+            if (newMode != currentMode && (newMode == 'P' || newMode == 'S' || newMode == 'A')) {
+                requestedMode = newMode;
+                modeChangeStartTime = millis();
+                needsFullDisplay = true;  // Force full display update
+                showStatus();  // Update debug display
+                sendStatusPacket();  // Send status packet immediately to acknowledge request
+            }
+        }
     }
 
     void showStatus() {
@@ -56,7 +84,15 @@ private:
         Serial.print("Packets/sec: "); 
         Serial.print(packetCount);
         Serial.print("   Mode: ");
-        Serial.println(currentMode);
+        Serial.print(currentMode);
+        if (requestedMode) {
+            Serial.print(" (changing to ");
+            Serial.print(requestedMode);
+            Serial.print(" in ");
+            int remainingTime = 1000 - (millis() - modeChangeStartTime);
+            Serial.print(remainingTime);
+            Serial.print("ms)");
+        }
         Serial.println();
 
         // Analog sticks (as percentages)
@@ -131,15 +167,6 @@ private:
         Serial.println("\n");
     }
 
-    void checkMode() {
-        uint8_t buttons = receiveBuffer[8];
-        if (buttons & 0x01) currentMode = 'A';
-        else if (buttons & 0x02) currentMode = 'B';
-        else if (buttons & 0x04) currentMode = 'X';
-        else if (buttons & 0x08) currentMode = 'Y';
-        sendStatusPacket();  // Send status packet immediately on mode change
-    }
-
 public:
     void begin() {
         Serial.begin(115200);  // USB Serial for debug
@@ -150,7 +177,7 @@ public:
         pinMode(LED_PIN, OUTPUT);
         
         Serial.println("\nXBee Controller Monitor");
-        Serial.println("Starting up in Mode A...");
+        Serial.println("Starting up in Perch Mode...");
         
         // Start XBee serial at 57600 baud
         Serial2.begin(57600);
@@ -167,17 +194,21 @@ public:
         if (now - lastByteTime > 1000) {  // No data for 1 second
             if (currentMode != 'Q') {
                 currentMode = 'Q';
+                requestedMode = 0;  // Clear any pending mode change
                 needsFullDisplay = true;
                 showStatus();
                 sendStatusPacket();  // Immediately send disconnected status
             }
         }
         
-        // Send status packet every 500ms instead of 10s for more responsive UI
-        if (now - lastStatusTime >= 500) {
+        // Send status packet every 100ms for more responsive UI
+        if (now - lastStatusTime >= 100) {
             lastStatusTime = now;
             sendStatusPacket();
         }
+        
+        // Check for mode changes
+        checkMode();
         
         // Update packet counter
         static uint32_t lastCountTime = 0;

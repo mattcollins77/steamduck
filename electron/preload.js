@@ -5,9 +5,9 @@ const { contextBridge, ipcRenderer, app } = require('electron');
 contextBridge.exposeInMainWorld(
   'electron',
   {
-    startSSH: async (user, command) => {
+    startSSH: async (user, command, type) => {
       try {
-        const result = await ipcRenderer.invoke('start-ssh', user, command);
+        const result = await ipcRenderer.invoke('start-ssh', user, command, type);
         if (!result.success) {
           throw new Error(result.error || 'Failed to start SSH connection');
         }
@@ -16,9 +16,9 @@ contextBridge.exposeInMainWorld(
         throw { message: error.message || 'Unknown error occurred' };
       }
     },
-    stopSSH: async () => {
+    stopSSH: async (type) => {
       try {
-        const result = await ipcRenderer.invoke('stop-ssh');
+        const result = await ipcRenderer.invoke('stop-ssh', type);
         if (!result.success) {
           throw new Error(result.error || 'Failed to stop SSH connection');
         }
@@ -27,25 +27,25 @@ contextBridge.exposeInMainWorld(
         throw { message: error.message || 'Unknown error occurred' };
       }
     },
-    onSSHData: (callback) => {
+    onSSHData: (type, callback) => {
       const subscription = (_event, value) => callback(_event, value);
-      ipcRenderer.on('ssh-data', subscription);
+      ipcRenderer.on(`ssh-data-${type}`, subscription);
       return () => {
-        ipcRenderer.removeListener('ssh-data', subscription);
+        ipcRenderer.removeListener(`ssh-data-${type}`, subscription);
       };
     },
-    onSSHError: (callback) => {
+    onSSHError: (type, callback) => {
       const subscription = (_event, value) => callback(_event, value);
-      ipcRenderer.on('ssh-error', subscription);
+      ipcRenderer.on(`ssh-error-${type}`, subscription);
       return () => {
-        ipcRenderer.removeListener('ssh-error', subscription);
+        ipcRenderer.removeListener(`ssh-error-${type}`, subscription);
       };
     },
-    onSSHClose: (callback) => {
+    onSSHClose: (type, callback) => {
       const subscription = (_event, value) => callback(_event, value);
-      ipcRenderer.on('ssh-close', subscription);
+      ipcRenderer.on(`ssh-close-${type}`, subscription);
       return () => {
-        ipcRenderer.removeListener('ssh-close', subscription);
+        ipcRenderer.removeListener(`ssh-close-${type}`, subscription);
       };
     },
     // Add methods for resource paths

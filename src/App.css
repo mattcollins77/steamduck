@@ -1,6 +1,6 @@
 .layout-container {
   display: flex;
-  height: 800px;
+  height: 750px;
   margin: 10px;
   background: #1a1a2e;
   border-radius: 10px;
@@ -443,7 +443,7 @@
   border: 1px solid #2d3748;
   border-radius: 10px;
   cursor: pointer;
-  font-size: 0.6em;
+  font-size: 0.9em;
   font-weight: 500;
   transition: all 0.2s ease;
   letter-spacing: 0.5px;

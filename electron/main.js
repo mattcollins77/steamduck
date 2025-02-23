@@ -47,34 +47,37 @@ function createWindow() {
     return isDev;
   });
 
-  let currentSSHProcess = null;
+  let sshProcesses = {
+    ops: null,
+    debug: null
+  };
 
   // SSH connection handler
-  ipcMain.handle('start-ssh', async (event, user, command) => {
+  ipcMain.handle('start-ssh', async (event, user, command, type) => {
     try {
-      if (currentSSHProcess) {
-        currentSSHProcess.kill();
+      if (sshProcesses[type]) {
+        sshProcesses[type].kill();
       }
 
-      currentSSHProcess = spawn('ssh', [user, command]);
+      sshProcesses[type] = spawn('ssh', [user, command]);
       
-      currentSSHProcess.stdout.on('data', (data) => {
+      sshProcesses[type].stdout.on('data', (data) => {
         if (!event.sender.isDestroyed()) {
-          event.sender.send('ssh-data', data.toString());
+          event.sender.send(`ssh-data-${type}`, data.toString());
         }
       });
 
-      currentSSHProcess.stderr.on('data', (data) => {
+      sshProcesses[type].stderr.on('data', (data) => {
         if (!event.sender.isDestroyed()) {
-          event.sender.send('ssh-error', data.toString());
+          event.sender.send(`ssh-error-${type}`, data.toString());
         }
       });
 
-      currentSSHProcess.on('close', (code) => {
+      sshProcesses[type].on('close', (code) => {
         if (!event.sender.isDestroyed()) {
-          event.sender.send('ssh-close', code);
+          event.sender.send(`ssh-close-${type}`, code);
         }
-        currentSSHProcess = null;
+        sshProcesses[type] = null;
       });
 
       return { success: true };
@@ -84,11 +87,11 @@ function createWindow() {
     }
   });
 
-  ipcMain.handle('stop-ssh', async () => {
+  ipcMain.handle('stop-ssh', async (event, type) => {
     try {
-      if (currentSSHProcess) {
-        currentSSHProcess.kill();
-        currentSSHProcess = null;
+      if (sshProcesses[type]) {
+        sshProcesses[type].kill();
+        sshProcesses[type] = null;
       }
       return { success: true };
     } catch (error) {

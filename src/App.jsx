@@ -374,28 +374,44 @@ function App() {
     };
   }, []);
 
+  const [debugOutput, setDebugOutput] = useState([]);
+  const debugOutputRef = useRef(null);
+
   // SSH Connection for telemetry
   const connectSSH = useCallback(async () => {
     try {
-      const response = await window.electron.startSSH('matt@192.168.1.50', 'cat /dev/puddleduck_ops');
+      const response = await window.electron.startSSH('matt@192.168.1.50', 'cat /dev/puddleduck_ops', 'ops');
       if (response.success) {
         console.log('SSH connected successfully');
-        setSshProcess({ ops: true, debug: false });
+        setSshProcess(prev => ({ ...prev, ops: true }));
       } else {
         throw new Error('Failed to connect to SSH');
       }
     } catch (error) {
       console.error('Error connecting via SSH:', error);
-      setSshProcess({ ops: false, debug: false });
+      setSshProcess(prev => ({ ...prev, ops: false }));
+    }
+  }, []);
+
+  const connectDebugSSH = useCallback(async () => {
+    try {
+      const response = await window.electron.startSSH('matt@192.168.1.50', 'cat /dev/puddleduck', 'debug');
+      if (response.success) {
+        console.log('Debug SSH connected successfully');
+        setSshProcess(prev => ({ ...prev, debug: true }));
+      } else {
+        throw new Error('Failed to connect to debug SSH');
+      }
+    } catch (error) {
+      console.error('Error connecting to debug SSH:', error);
+      setSshProcess(prev => ({ ...prev, debug: false }));
     }
   }, []);
 
   const disconnectSSH = useCallback(async () => {
     try {
-      const response = await window.electron.stopSSH();
-      if (response.success) {
-        console.log('SSH disconnected successfully');
-      }
+      await window.electron.stopSSH('ops');
+      await window.electron.stopSSH('debug');
       setSshProcess({ ops: false, debug: false });
     } catch (error) {
       console.error('Error disconnecting SSH:', error);
@@ -406,68 +422,106 @@ function App() {
   useEffect(() => {
     if (!window.electron) return;
 
-    const removeDataListener = window.electron.onSSHData((event, data) => {
+    const removeOpsDataListener = window.electron.onSSHData('ops', (event, data) => {
       if (!data) return;
+      console.log('Received ops data:', data); // Debug log
       try {
         const lines = data.split('\n');
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
             const parsedData = JSON.parse(line);
+            console.log('Parsed ops data:', parsedData); // Debug log
             setRobotData(parsedData);
             
             // Update robot visualization
             if (parsedData.motors) {
+              console.log('Updating joints with:', parsedData.motors); // Debug log
               robotViewerRef.current?.updateJoints(parsedData.motors);
             }
             if (parsedData.sensors) {
               const imuSensor = parsedData.sensors.find(s => s.name === "imu");
               if (imuSensor) {
+                console.log('Updating orientation with:', imuSensor); // Debug log
                 robotViewerRef.current?.updateOrientation(imuSensor);
               }
             }
           } catch (e) {
-            // Skip invalid JSON lines
-            console.debug('Error parsing SSH data line:', e);
+            console.debug('Error parsing ops data line:', e, 'Line:', line);
           }
         }
       } catch (error) {
-        console.error('Error processing SSH data:', error);
+        console.error('Error processing ops data:', error);
       }
     });
 
-    const removeErrorListener = window.electron.onSSHError((event, error) => {
-      console.error('SSH Error:', error);
+    const removeDebugDataListener = window.electron.onSSHData('debug', (event, data) => {
+      if (!data) return;
+      console.log('Received debug data:', data); // Debug log
+      const newLines = data.split('\n').filter(line => line.trim());
+      if (newLines.length > 0) {
+        setDebugOutput(prev => {
+          const updated = [...prev, ...newLines];
+          return updated.slice(-1000); // Keep last 1000 lines
+        });
+        // Auto-scroll to bottom
+        requestAnimationFrame(() => {
+          if (debugOutputRef.current) {
+            debugOutputRef.current.scrollTop = debugOutputRef.current.scrollHeight;
+          }
+        });
+      }
     });
 
-    const removeCloseListener = window.electron.onSSHClose((event, code) => {
-      console.log('SSH connection closed with code:', code);
-      setSshProcess({ ops: false, debug: false });
+    const removeOpsErrorListener = window.electron.onSSHError('ops', (event, error) => {
+      console.error('Ops SSH Error:', error);
     });
 
+    const removeDebugErrorListener = window.electron.onSSHError('debug', (event, error) => {
+      console.error('Debug SSH Error:', error);
+    });
+
+    const removeOpsCloseListener = window.electron.onSSHClose('ops', (event, code) => {
+      console.log('Ops SSH connection closed with code:', code);
+      setSshProcess(prev => ({ ...prev, ops: false }));
+    });
+
+    const removeDebugCloseListener = window.electron.onSSHClose('debug', (event, code) => {
+      console.log('Debug SSH connection closed with code:', code);
+      setSshProcess(prev => ({ ...prev, debug: false }));
+    });
+
+    // Clean up function
     return () => {
-      removeDataListener?.();
-      removeErrorListener?.();
-      removeCloseListener?.();
+      removeOpsDataListener?.();
+      removeDebugDataListener?.();
+      removeOpsErrorListener?.();
+      removeDebugErrorListener?.();
+      removeOpsCloseListener?.();
+      removeDebugCloseListener?.();
     };
   }, []);
 
-  // Effect to handle robot data updates
+  // Separate effect for robot data updates
   useEffect(() => {
     if (!robotData) return;
+    console.log('Robot data updated:', robotData); // Debug log
 
     // Update robot visualization whenever robotData changes
     if (robotData.motors) {
+      console.log('Updating joints from state change:', robotData.motors); // Debug log
       robotViewerRef.current?.updateJoints(robotData.motors);
     }
     if (robotData.sensors) {
       const imuSensor = robotData.sensors.find(s => s.name === "imu");
       if (imuSensor) {
+        console.log('Updating orientation from state change:', imuSensor); // Debug log
         robotViewerRef.current?.updateOrientation(imuSensor);
       }
     }
   }, [robotData]);
 
+  // Update UI to include debug output
   return (
     <div className="layout-container">
       <div className="side-panel left-panel">
@@ -533,137 +587,273 @@ function App() {
         </div>
        
       </div>
-      <div className="flex-1 h-full">
-        <div className="main-panel">
-          <div className="robot-viewer">
-            <RobotViewer ref={robotViewerRef} />
-          </div>
-          <div className="steam-deck-visual-container">
-            <SteamDeckVisual gamepadState={gamepadState} />
-          </div>
+      <div className="main-panel">
+        <div className="robot-viewer">
+          <RobotViewer ref={robotViewerRef} />
+        </div>
+        <div className="steam-deck-visual-container">
+          <SteamDeckVisual gamepadState={gamepadState} />
         </div>
       </div>
-      <div className="side-panel right-panel">
-        <div className="mode-control">
-          <div className="mode-status">
-           <span style={{fontSize: 16, color: '#fff'}}>Current Mode:</span> {robotMode === 'P' ? 'Perch' : robotMode === 'S' ? 'Standby' : 'Active'}
-            {requestedMode && (
-              <div className="mode-pending">
-                Changing to {requestedMode === 'P' ? 'Perch' : requestedMode === 'S' ? 'Standby' : 'Active'}...
+      <div className="side-panel right-panel" style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        maxHeight: '730px',
+        padding: '8px',
+        gap: '8px'
+      }}>
+        <div className="control-panel" style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px'
+        }}>
+          <div className="mode-control" style={{
+            backgroundColor: '#2a2a2a',
+            padding: '8px',
+            borderRadius: '6px'
+          }}>
+            <div className="mode-status" style={{ marginBottom: '8px' }}>
+              <span style={{fontSize: '16px', color: '#fff'}}>Current Mode: </span>
+              <span style={{fontSize: '24px', color: '#4ade80'}}>
+                {robotMode === 'P' ? 'Perch' : robotMode === 'S' ? 'Standby' : 'Active'}
+              </span>
+              {requestedMode && (
+                <div className="mode-pending" >
+                  Changing to {requestedMode === 'P' ? 'Perch' : requestedMode === 'S' ? 'Standby' : 'Active'}...
+                </div>
+              )}
+            </div>
+            {!requestedMode && (
+              <div className="mode-buttons" style={{ display: 'flex', gap: '6px' }}>
+                {robotMode === 'P' && (
+                  <button 
+                    className="mode-button"
+                    onClick={() => handleModeChange('S')}
+                    
+                  >
+                    Set to Standby
+                  </button>
+                )}
+                {robotMode === 'S' && (
+                  <>
+                    <button 
+                      className="mode-button"
+                      onClick={() => handleModeChange('A')}
+                     
+                    >
+                      Set to Active
+                    </button>
+                    <button 
+                      className="mode-button"
+                      onClick={() => handleModeChange('P')}
+                     
+                    >
+                      Set to Perch
+                    </button>
+                  </>
+                )}
+                {robotMode === 'A' && (
+                  <button 
+                    className="mode-button"
+                    onClick={() => handleModeChange('S')}
+                   
+                  >
+                    Set to Standby
+                  </button>
+                )}
               </div>
             )}
           </div>
-          {!requestedMode && (  // Only show buttons if we're not waiting for a mode change
-            <>
-              {robotMode === 'P' && (
-                <button 
-                  className="mode-button"
-                  onClick={() => handleModeChange('S')}
-                >
-                  Set to Standby
-                </button>
-              )}
-              {robotMode === 'S' && (
-                <div className="mode-buttons">
-                  <button 
-                    className="mode-button"
-                    onClick={() => handleModeChange('A')}
-                  >
-                    Set to Active
-                  </button>
-                  <button 
-                    className="mode-button"
-                    onClick={() => handleModeChange('P')}
-                  >
-                    Set to Perch
-                  </button>
+
+          <div className="connection-panel" style={{
+            padding: '8px',
+            backgroundColor: '#2a2a2a',
+            borderRadius: '6px'
+          }}>
+            <h3 style={{ 
+              margin: '0 0 6px 0',
+              color: '#fff',
+              fontSize: '20px',
+              fontWeight: '500'
+            }}>Connections</h3>
+            <div className="status-panel" style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <div className="status-item" style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '6px 10px',
+                backgroundColor: '#1e1e1e',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s ease'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="status-label" >Serial:</span>
+                  <span className={`status-value`} >
+                    {serialPort ? 'Connected' : 'Disconnected'}
+                  </span>
                 </div>
-              )}
-              {robotMode === 'A' && (
                 <button 
-                  className="mode-button"
-                  onClick={() => handleModeChange('S')}
+                  onClick={serialPort ? disconnectControl : connectControl}
+                  className={`connection-button ${serialPort ? 'active' : ''}`}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: serialPort ? '#2c5282' : '#4a5568',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '20px',
+                    transition: 'all 0.2s ease',
+                    ':hover': {
+                      backgroundColor: serialPort ? '#2d3748' : '#718096',
+                      transform: 'translateY(-1px)'
+                    }
+                  }}
                 >
-                  Set to Standby
+                  {serialPort ? 'Disconnect' : 'Connect'}
                 </button>
-              )}
-            </>
-          )}
+              </div>
+
+              <div className="status-item" style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '6px 10px',
+                backgroundColor: '#1e1e1e',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s ease'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="status-label" >Telemetry:</span>
+                  <span className={`status-value`} >
+                    {sshProcess.ops ? 'Connected' : 'Disconnected'}
+                  </span>
+                </div>
+                <button 
+                  onClick={sshProcess.ops ? disconnectSSH : connectSSH}
+                  className={`connection-button ${sshProcess.ops ? 'active' : ''}`}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: sshProcess.ops ? '#2c5282' : '#4a5568',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '20px',
+                    transition: 'all 0.2s ease',
+                    ':hover': {
+                      backgroundColor: sshProcess.ops ? '#2d3748' : '#718096',
+                      transform: 'translateY(-1px)'
+                    }
+                  }}
+                >
+                  {sshProcess.ops ? 'Disconnect' : 'Connect'}
+                </button>
+              </div>
+
+              <div className="status-item" style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '6px 10px',
+                backgroundColor: '#1e1e1e',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s ease'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className="status-label" >Debug:</span>
+                  <span className={`status-value`} >
+                    {sshProcess.debug ? 'Connected' : 'Disconnected'}
+                  </span>
+                </div>
+                <button 
+                  onClick={sshProcess.debug ? disconnectSSH : connectDebugSSH}
+                  className={`connection-button ${sshProcess.debug ? 'active' : ''}`}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    backgroundColor: sshProcess.debug ? '#2c5282' : '#4a5568',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '20px',
+                    transition: 'all 0.2s ease',
+                    ':hover': {
+                      backgroundColor: sshProcess.debug ? '#2d3748' : '#718096',
+                      transform: 'translateY(-1px)'
+                    }
+                  }}
+                >
+                  {sshProcess.debug ? 'Disconnect' : 'Connect'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="control-section">
-          <div className="connection-grid">
-            <button 
-              onClick={serialPort ? disconnectControl : connectControl}
-              className={serialPort ? 'active' : ''}
-            >
-              {serialPort ? 'Disconnect' : 'Connect Control'}
-            </button>
-            <button 
-              onClick={sshProcess.ops ? disconnectSSH : connectSSH}
-              disabled={false}
-              className={sshProcess.ops ? 'active' : ''}
-            >
-              {sshProcess.ops ? 'Disconnect' : 'Connect'} Telemetry
-            </button>
-          </div>
-
-          <div className="status-panel">
-            <h3>Connection Status</h3>
-            <div className="status-item">
-              <span className="status-label">Control:</span>
-              <span className={`status-value ${serialPort ? 'connected' : 'disconnected'}`}>
-                {serialPort ? 'Connected' : 'Disconnected'}
-              </span>
-            </div>
-            <div className="status-item">
-              <span className="status-label">Telemetry:</span>
-              <span className={`status-value ${sshProcess.ops ? 'connected' : 'disconnected'}`}>
-                {sshProcess.ops ? 'Connected' : 'Disconnected'}
-              </span>
-            </div>
-           
-          </div>
-
-          {showModeTimeout && (
-            <div className="modal-overlay">
-              <div className="modal-content">
-                <p>Mode change request timed out!</p>
-                <p>The robot did not confirm the mode change. Please try again.</p>
-                <div className="modal-buttons">
-                  <button onClick={() => setShowModeTimeout(false)}>OK</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {showPerchConfirm && (
-            <div className="modal-overlay">
-              <div className="modal-content">
-                <p>Are you sure you want to change to perch mode?</p>
-                <p>This will loosen all joints and robot should be on stand.</p>
-                <div className="modal-buttons">
-                  <button onClick={confirmModeChange}>Yes, Continue</button>
-                  <button onClick={() => {
-                    setShowPerchConfirm(false);
-                  }}>Cancel</button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="debug-messages">
-          <h3>Debug Messages</h3>
-          <div className="messages-container">
-            {debugMessages.map((msg, index) => (
-              <div key={index} className="debug-message">
-                {msg}
-              </div>
+        <div className="debug-output" ref={debugOutputRef} style={{
+          flexGrow: 1,
+          minHeight: '80px',
+          maxHeight: 'calc(100vh - 480px)',
+          overflowY: 'auto',
+          backgroundColor: '#1e1e1e',
+          color: '#fff',
+          padding: '8px',
+          fontFamily: 'monospace',
+          fontSize: '11px',
+          whiteSpace: 'pre-wrap',
+          wordWrap: 'break-word',
+          borderRadius: '6px'
+        }}>
+          <div style={{ 
+            color: '#888', 
+            marginBottom: '4px',
+            borderBottom: '1px solid #333',
+            paddingBottom: '4px',
+            fontSize: '12px',
+            fontWeight: '500'
+          }}>Debug Output</div>
+          <div style={{ paddingTop: '2px' }}>
+            {debugOutput.map((line, index) => (
+              <div key={index} style={{ 
+                lineHeight: '1.2',
+                marginBottom: '1px'
+              }}>{line}</div>
             ))}
           </div>
         </div>
       </div>
+      {showModeTimeout && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <p>Mode change request timed out!</p>
+            <p>The robot did not confirm the mode change. Please try again.</p>
+            <div className="modal-buttons">
+              <button onClick={() => setShowModeTimeout(false)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPerchConfirm && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <p>Are you sure you want to change to perch mode?</p>
+            <p>This will loosen all joints and robot should be on stand.</p>
+            <div className="modal-buttons">
+              <button onClick={confirmModeChange}>Yes, Continue</button>
+              <button onClick={() => {
+                setShowPerchConfirm(false);
+              }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
