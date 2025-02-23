@@ -276,9 +276,6 @@ p {
   margin: 0;
 }
 
-span {
-  animation: blink 1s infinite;
-}
 
 ul {
   list-style: none;
@@ -492,7 +489,6 @@ a.button {
   text-decoration: none;
   text-transform: uppercase;
   z-index: 10;
-  animation: flash 1.5s infinite ease-in-out; /* Add subtle flashing animation */
 }
 a.buttonOrinGreen {
   background: transparent;
@@ -553,7 +549,6 @@ a.buttonAction {
   width: 163px;
   height: 80px;
   vertical-align: middle;
-  animation: flash2 5s infinite ease-in-out; /* Add subtle flashing animation */
   align-items: center; /* Center vertically */
   justify-content: center; /* Center horizontally */
 }
@@ -580,7 +575,6 @@ a.buttonActionRed {
   height: 80px;
   margin-left: 20px;
   vertical-align: middle;
-  animation: flash2 5s infinite ease-in-out; /* Add subtle flashing animation */
   align-items: center; /* Center vertically */
   justify-content: center; /* Center horizontally */
 }

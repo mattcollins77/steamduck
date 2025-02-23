@@ -7,9 +7,23 @@ contextBridge.exposeInMainWorld(
   {
     startSSH: async (user, command) => {
       try {
-        return await ipcRenderer.invoke('start-ssh', user, command);
+        const result = await ipcRenderer.invoke('start-ssh', user, command);
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to start SSH connection');
+        }
+        return result;
       } catch (error) {
-        // Convert error to a simple object with message
+        throw { message: error.message || 'Unknown error occurred' };
+      }
+    },
+    stopSSH: async () => {
+      try {
+        const result = await ipcRenderer.invoke('stop-ssh');
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to stop SSH connection');
+        }
+        return result;
+      } catch (error) {
         throw { message: error.message || 'Unknown error occurred' };
       }
     },

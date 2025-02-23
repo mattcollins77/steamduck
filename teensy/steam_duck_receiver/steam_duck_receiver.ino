@@ -114,20 +114,20 @@ private:
         Serial.println();
 
         // On-screen Buttons
-        Serial.println("On-screen Buttons:");
-        for (int i = 0; i < 8; i++) {
-            Serial.print(i + 1);
-            Serial.print(": ");
-            Serial.print(receiveBuffer[10] & (1 << i) ? "ON " : "OFF");
-            Serial.print("  ");
-            if ((i + 1) % 4 == 0) Serial.println();
-        }
-        for (int i = 0; i < 2; i++) {
-            Serial.print(i + 9);
-            Serial.print(": ");
-            Serial.print(receiveBuffer[11] & (1 << i) ? "ON " : "OFF");
-            Serial.print("  ");
-        }
+        Serial.println("\nOn-screen Buttons:");
+        uint8_t buttons1 = receiveBuffer[10];
+        uint8_t buttons2 = receiveBuffer[11];
+        
+        if (buttons1 & 0x01) Serial.println("Perch");
+        if (buttons1 & 0x02) Serial.println("Standby");
+        if (buttons1 & 0x04) Serial.println("Active");
+        if (buttons1 & 0x08) Serial.println("Button 4");
+        if (buttons1 & 0x10) Serial.println("Button 5");
+        if (buttons1 & 0x20) Serial.println("Button 6");
+        if (buttons1 & 0x40) Serial.println("Button 7");
+        if (buttons1 & 0x80) Serial.println("Button 8");
+        if (buttons2 & 0x01) Serial.println("Button 9");
+        if (buttons2 & 0x02) Serial.println("Button 10");
         Serial.println("\n");
     }
 

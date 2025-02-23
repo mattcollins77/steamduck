@@ -47,29 +47,54 @@ function createWindow() {
     return isDev;
   });
 
+  let currentSSHProcess = null;
+
   // SSH connection handler
   ipcMain.handle('start-ssh', async (event, user, command) => {
-    const sshProcess = spawn('ssh', [user, command]);
-    
-    sshProcess.stdout.on('data', (data) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('ssh-data', data.toString());
+    try {
+      if (currentSSHProcess) {
+        currentSSHProcess.kill();
       }
-    });
 
-    sshProcess.stderr.on('data', (data) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('ssh-error', data.toString());
+      currentSSHProcess = spawn('ssh', [user, command]);
+      
+      currentSSHProcess.stdout.on('data', (data) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('ssh-data', data.toString());
+        }
+      });
+
+      currentSSHProcess.stderr.on('data', (data) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('ssh-error', data.toString());
+        }
+      });
+
+      currentSSHProcess.on('close', (code) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('ssh-close', code);
+        }
+        currentSSHProcess = null;
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('SSH connection error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('stop-ssh', async () => {
+    try {
+      if (currentSSHProcess) {
+        currentSSHProcess.kill();
+        currentSSHProcess = null;
       }
-    });
-
-    sshProcess.on('close', (code) => {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('ssh-close', code);
-      }
-    });
-
-    return sshProcess;
+      return { success: true };
+    } catch (error) {
+      console.error('Error stopping SSH:', error);
+      return { success: false, error: error.message };
+    }
   });
 
   // Handle serial permission requests

@@ -137,7 +137,6 @@ const RobotViewer = forwardRef((props, ref) => {
                 ? path.replace('package://', '/go_bdx/')
                 : path.replace('package://', `${resourcesPath}/public/go_bdx/`);
             
-            console.log('Loading mesh:', meshPath, 'isDev:', isDev, 'resourcesPath:', resourcesPath);
             
             const loader = new STLLoader(manager);
             loader.load(meshPath, geom => {
@@ -155,7 +154,6 @@ const RobotViewer = forwardRef((props, ref) => {
             },
             // Add progress callback
             (xhr) => {
-                console.log(`${meshPath}: ${(xhr.loaded / xhr.total * 100)}% loaded`);
             },
             // Add error callback
             (error) => {

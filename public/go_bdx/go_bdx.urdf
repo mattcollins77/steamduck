@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <robot name="bdx">
-  <material name="silver">
-    <color rgba="0.700 0.700 0.700 1.000"/>
+  <material name="green">
+    <color rgba="0.000 0.400 0.000 1.000"/>
   </material>
   <link name="trunk">
     <inertial>
@@ -139,7 +139,7 @@
       <geometry>
         <mesh filename="meshes/pelvis.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -172,7 +172,7 @@
       <geometry>
         <mesh filename="meshes/left_foot.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0.057251 -0.103809 -0.081036"/>
@@ -192,7 +192,7 @@
       <geometry>
         <mesh filename="meshes/left_shin.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0.102251 -0.119009 -0.211036"/>
@@ -212,7 +212,7 @@
       <geometry>
         <mesh filename="meshes/left_thigh.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
   </link>
   <link name="left_hip">
@@ -226,7 +226,7 @@
       <geometry>
         <mesh filename="meshes/left_hip.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
   </link>
   <link name="left_hip_rotation">
@@ -240,7 +240,7 @@
       <geometry>
         <mesh filename="meshes/left_hip_rotation.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
   </link>
   <link name="right_foot">
@@ -267,7 +267,7 @@
       <geometry>
         <mesh filename="meshes/right_foot.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0.057251 0.103809 -0.081036"/>
@@ -287,7 +287,7 @@
       <geometry>
         <mesh filename="meshes/right_shin.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0.102251 0.119009 -0.211036"/>
@@ -307,7 +307,7 @@
       <geometry>
         <mesh filename="meshes/right_thigh.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
   </link>
   <link name="right_hip">
@@ -321,7 +321,7 @@
       <geometry>
         <mesh filename="meshes/right_hip.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
   </link>
   <link name="right_hip_rotation">
@@ -335,7 +335,7 @@
       <geometry>
         <mesh filename="meshes/right_hip_rotation.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
   </link>
   <link name="ear_right">
@@ -349,7 +349,7 @@
       <geometry>
         <mesh filename="meshes/ear_right.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0.135142 0.06885 -0.563402"/>
@@ -369,7 +369,7 @@
       <geometry>
         <mesh filename="meshes/ear_left.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="0.135142 -0.06915 -0.563402"/>
@@ -402,7 +402,7 @@
       <geometry>
         <mesh filename="meshes/head_body_roll.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
     <collision>
       <origin rpy="0 0 0" xyz="-0.031508 -0.00085 -0.562171"/>
@@ -422,7 +422,7 @@
       <geometry>
         <mesh filename="meshes/head_body_yaw.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
   </link>
   <link name="head_body_pitch">
@@ -436,7 +436,7 @@
       <geometry>
         <mesh filename="meshes/head_body_pitch.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
   </link>
   <link name="neck">
@@ -450,8 +450,7 @@
       <geometry>
         <mesh filename="meshes/neck.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="silver"/>
+      <material name="green"/>
     </visual>
   </link>
 </robot>
-
