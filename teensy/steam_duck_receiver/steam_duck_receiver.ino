@@ -8,7 +8,7 @@ private:
 
     static constexpr uint8_t PACKET_START = 0xAA;
     static constexpr uint8_t PACKET_END = 0x55;
-    static constexpr size_t PACKET_SIZE = 16;  // Start + 14 data bytes + End
+    static constexpr size_t PACKET_SIZE = 19;  // Start + Seq + 15 data bytes + Checksum + End
     
     uint8_t receiveBuffer[PACKET_SIZE];
     size_t receiveIndex = 0;
@@ -17,10 +17,29 @@ private:
     uint32_t lastPacketTime = 0;
     uint32_t lastStatusTime = 0;
     uint32_t packetCount = 0;
+    uint8_t lastSequence = 0;
     bool needsFullDisplay = true;
     char currentMode = 'P';  // Start in Perch mode
     char requestedMode = 0;  // For pending mode changes
     uint32_t modeChangeStartTime = 0;  // When mode change was requested
+
+    struct GamepadState {
+        uint8_t leftStickX;
+        uint8_t leftStickY;
+        uint8_t rightStickX;
+        uint8_t rightStickY;
+        uint8_t leftTrigger;
+        uint8_t rightTrigger;
+        uint8_t dpad;        // bits: 0=Up, 1=Down, 2=Left, 3=Right
+        uint8_t buttons;     // bits: 0=A,1=B,2=X,3=Y,4=LB,5=RB,6=Back,7=Start
+        uint8_t stickButtons; // bits: 0=LeftStick,1=RightStick
+        uint8_t onScreenButtons1; // First 8 onscreen buttons
+        uint8_t onScreenButtons2; // Last 2 onscreen buttons
+        uint8_t motorEnabled;
+        uint8_t selectedJoint;
+        uint8_t jointPosition;
+        char mode;
+    } gamepadState;
 
     void clearScreen() {
         Serial.write(27);    // ESC command
@@ -29,227 +48,218 @@ private:
         Serial.print("[H");  // cursor to home
     }
 
-    void sendStatusPacket() {
-        // Create a JSON string with the current state
-        char jsonBuffer[256];
-        snprintf(jsonBuffer, sizeof(jsonBuffer),
-            "{\"mode\":\"%c\",\"requested_mode\":\"%c\",\"motors\":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"sensors\":[{\"name\":\"imu\",\"roll\":0,\"pitch\":0,\"yaw\":0}]}\n",
-            currentMode,
-            requestedMode ? requestedMode : currentMode
-        );
+    void displayGamepadState() {
+        clearScreen();
+        Serial.println("Steam Duck Controller Status");
+        Serial.println("---------------------------");
         
-        // Send the JSON string over both Serial ports
-        Serial.write(jsonBuffer);  // For debug monitor
-        Serial2.write(jsonBuffer); // For XBee
-        Serial2.flush();
+        // Analog sticks (show as percentages)
+        Serial.printf("Left Stick:  X: %3d%% Y: %3d%%\n", 
+            (gamepadState.leftStickX * 100) / 255,
+            (gamepadState.leftStickY * 100) / 255);
+        Serial.printf("Right Stick: X: %3d%% Y: %3d%%\n", 
+            (gamepadState.rightStickX * 100) / 255,
+            (gamepadState.rightStickY * 100) / 255);
+        
+        // Triggers
+        Serial.printf("Triggers: L: %3d%% R: %3d%%\n",
+            (gamepadState.leftTrigger * 100) / 255,
+            (gamepadState.rightTrigger * 100) / 255);
+        
+        // D-Pad
+        Serial.println("\nD-Pad:");
+        Serial.printf("  UP: %s  DOWN: %s  LEFT: %s  RIGHT: %s\n",
+            (gamepadState.dpad & 0x01) ? "ON " : "OFF",
+            (gamepadState.dpad & 0x02) ? "ON " : "OFF",
+            (gamepadState.dpad & 0x04) ? "ON " : "OFF",
+            (gamepadState.dpad & 0x08) ? "ON " : "OFF");
+        
+        // Face buttons
+        Serial.println("\nButtons:");
+        Serial.printf("  A: %s  B: %s  X: %s  Y: %s\n",
+            (gamepadState.buttons & 0x01) ? "ON " : "OFF",
+            (gamepadState.buttons & 0x02) ? "ON " : "OFF",
+            (gamepadState.buttons & 0x04) ? "ON " : "OFF",
+            (gamepadState.buttons & 0x08) ? "ON " : "OFF");
+        Serial.printf("  LB: %s  RB: %s  Back: %s  Start: %s\n",
+            (gamepadState.buttons & 0x10) ? "ON " : "OFF",
+            (gamepadState.buttons & 0x20) ? "ON " : "OFF",
+            (gamepadState.buttons & 0x40) ? "ON " : "OFF",
+            (gamepadState.buttons & 0x80) ? "ON " : "OFF");
+        
+        // Stick clicks
+        Serial.printf("  L3: %s  R3: %s\n",
+            (gamepadState.stickButtons & 0x01) ? "ON " : "OFF",
+            (gamepadState.stickButtons & 0x02) ? "ON " : "OFF");
+        
+        // On-screen buttons
+        Serial.println("\nOn-screen Buttons:");
+        Serial.printf("  Buttons 1-8: %s\n", 
+            (gamepadState.onScreenButtons1 & 0x01) ? "ON " : "OFF",
+            (gamepadState.onScreenButtons1 & 0x02) ? "ON " : "OFF",
+            (gamepadState.onScreenButtons1 & 0x04) ? "ON " : "OFF",
+            (gamepadState.onScreenButtons1 & 0x08) ? "ON " : "OFF",
+            (gamepadState.onScreenButtons1 & 0x10) ? "ON " : "OFF",
+            (gamepadState.onScreenButtons1 & 0x20) ? "ON " : "OFF",
+            (gamepadState.onScreenButtons1 & 0x40) ? "ON " : "OFF",
+            (gamepadState.onScreenButtons1 & 0x80) ? "ON " : "OFF");
+        Serial.printf("  Buttons 9-10: %s %s\n", 
+            (gamepadState.onScreenButtons2 & 0x01) ? "ON " : "OFF",
+            (gamepadState.onScreenButtons2 & 0x02) ? "ON " : "OFF");
+        
+        // Motor control
+        Serial.println("\nMotor Control:");
+        Serial.printf("  Enabled: %s\n", gamepadState.motorEnabled ? "YES" : "NO");
+        Serial.printf("  Selected Joint: %d\n", gamepadState.selectedJoint);
+        Serial.printf("  Position: %d%%\n", (gamepadState.jointPosition * 100) / 255);
+        
+        // Mode
+        Serial.printf("\nMode: %c\n", gamepadState.mode);
+        
+        // Stats
+        Serial.printf("\nPacket Count: %lu\n", packetCount);
+        if (lastByteTime > 0) {
+            Serial.printf("Last Packet: %lu ms ago\n", (millis() - lastPacketTime));
+        }
     }
 
-    void checkMode() {
-        // Check if there's a pending mode change
-        if (requestedMode != 0) {
-            if (millis() - modeChangeStartTime >= 1000) {  // 1 second delay
-                currentMode = requestedMode;
-                requestedMode = 0;  // Clear the request
-                needsFullDisplay = true;  // Force full display update
-                showStatus();  // Update debug display
-                sendStatusPacket();  // Send status packet after mode change
-            }
+    void processPacket() {
+        if (receiveIndex != PACKET_SIZE) return;
+
+        // Validate start and end bytes
+        if (receiveBuffer[0] != PACKET_START || receiveBuffer[PACKET_SIZE-1] != PACKET_END) {
+            Serial.println("Invalid packet markers");
             return;
         }
 
-        // Check for new mode change request in the packet
-        if (receiveIndex >= PACKET_SIZE) {  // Only if we have a complete packet
-            char newMode = receiveBuffer[15];  // Mode is in byte 15
-            if (newMode != currentMode && (newMode == 'P' || newMode == 'S' || newMode == 'A')) {
-                requestedMode = newMode;
-                modeChangeStartTime = millis();
-                needsFullDisplay = true;  // Force full display update
-                showStatus();  // Update debug display
-                sendStatusPacket();  // Send status packet immediately to acknowledge request
-            }
+        // Validate checksum
+        uint8_t checksum = 0;
+        for (int i = 1; i < PACKET_SIZE-2; i++) {
+            checksum ^= receiveBuffer[i];
         }
-    }
+        if (checksum != receiveBuffer[PACKET_SIZE-2]) {
+            Serial.println("Checksum mismatch");
+            return;
+        }
 
-    void showStatus() {
-        if (needsFullDisplay) {
-            clearScreen();
+        // Update gamepad state
+        uint8_t sequence = receiveBuffer[1];
+        gamepadState.leftStickX = receiveBuffer[2];
+        gamepadState.leftStickY = receiveBuffer[3];
+        gamepadState.rightStickX = receiveBuffer[4];
+        gamepadState.rightStickY = receiveBuffer[5];
+        gamepadState.leftTrigger = receiveBuffer[6];
+        gamepadState.rightTrigger = receiveBuffer[7];
+        gamepadState.dpad = receiveBuffer[8];
+        gamepadState.buttons = receiveBuffer[9];
+        gamepadState.stickButtons = receiveBuffer[10];
+        gamepadState.onScreenButtons1 = receiveBuffer[11];
+        gamepadState.onScreenButtons2 = receiveBuffer[12];
+        gamepadState.motorEnabled = receiveBuffer[13];
+        gamepadState.selectedJoint = receiveBuffer[14];
+        gamepadState.jointPosition = receiveBuffer[15];
+        gamepadState.mode = (char)receiveBuffer[16];
+
+        // Print state for debugging
+        Serial.print("SEQ:");
+        Serial.print(sequence);
+        Serial.print(" L:(");
+        Serial.print(gamepadState.leftStickX);
+        Serial.print(",");
+        Serial.print(gamepadState.leftStickY);
+        Serial.print(") R:(");
+        Serial.print(gamepadState.rightStickX);
+        Serial.print(",");
+        Serial.print(gamepadState.rightStickY);
+        Serial.print(") T:(");
+        Serial.print(gamepadState.leftTrigger);
+        Serial.print(",");
+        Serial.print(gamepadState.rightTrigger);
+        Serial.print(") B:");
+        Serial.print(gamepadState.buttons, HEX);
+        Serial.print(" D:");
+        Serial.print(gamepadState.dpad, HEX);
+        Serial.print(" S:");
+        Serial.print(gamepadState.stickButtons, HEX);
+        Serial.print(" OSB:");
+        Serial.print(gamepadState.onScreenButtons1, HEX);
+        Serial.print(",");
+        Serial.print(gamepadState.onScreenButtons2, HEX);
+        Serial.print(" M:");
+        Serial.print(gamepadState.motorEnabled);
+        Serial.print(" J:");
+        Serial.print(gamepadState.selectedJoint);
+        Serial.print("=");
+        Serial.print(gamepadState.jointPosition);
+        Serial.print(" Mode:");
+        Serial.println(gamepadState.mode);
+
+        // Update timing and counts
+        lastPacketTime = millis();
+        packetCount++;
+
+        // Display updated state (every 100ms)
+        if (millis() - lastStatusTime > 100 || needsFullDisplay) {
+            displayGamepadState();
+            lastStatusTime = millis();
             needsFullDisplay = false;
-        } else {
-            Serial.write(27);
-            Serial.print("[H");  // cursor to home
         }
 
-        // Status header
-        Serial.println("=== Controller Status ===");
-        Serial.print("Packets/sec: "); 
-        Serial.print(packetCount);
-        Serial.print("   Mode: ");
-        Serial.print(currentMode);
-        if (requestedMode) {
-            Serial.print(" (changing to ");
-            Serial.print(requestedMode);
-            Serial.print(" in ");
-            int remainingTime = 1000 - (millis() - modeChangeStartTime);
-            Serial.print(remainingTime);
-            Serial.print("ms)");
-        }
-        Serial.println();
+        // Toggle LED to show activity
+        digitalToggleFast(LED_PIN);
 
-        // Analog sticks (as percentages)
-        Serial.print("Left Stick:  X: ");
-        Serial.print(map(receiveBuffer[1], 0, 255, -100, 100));
-        Serial.print("%\tY: ");
-        Serial.print(map(receiveBuffer[2], 0, 255, -100, 100));
-        Serial.print("%\tClick: ");
-        Serial.println(receiveBuffer[9] & 0x01 ? "ON" : "OFF");
-
-        Serial.print("Right Stick: X: ");
-        Serial.print(map(receiveBuffer[3], 0, 255, -100, 100));
-        Serial.print("%\tY: ");
-        Serial.print(map(receiveBuffer[4], 0, 255, -100, 100));
-        Serial.print("%\tClick: ");
-        Serial.println(receiveBuffer[9] & 0x02 ? "ON" : "OFF");
-        Serial.println();
-
-        // Triggers
-        Serial.print("Triggers: L: ");
-        Serial.print(map(receiveBuffer[5], 0, 255, 0, 100));
-        Serial.print("%\tR: ");
-        Serial.print(map(receiveBuffer[6], 0, 255, 0, 100));
-        Serial.println("%");
-        Serial.println();
-
-        // D-Pad
-        Serial.println("D-Pad:");
-        Serial.print("       ");
-        Serial.println(receiveBuffer[7] & 0x01 ? "UP" : "  ");
-        Serial.print(receiveBuffer[7] & 0x04 ? "LEFT" : "    ");
-        Serial.print("   ");
-        Serial.println(receiveBuffer[7] & 0x02 ? "RIGHT" : "     ");
-        Serial.print("      ");
-        Serial.println(receiveBuffer[7] & 0x02 ? "DOWN" : "    ");
-        Serial.println();
-
-        // Face Buttons
-        Serial.println("Face Buttons:");
-        Serial.print("       ");
-        Serial.println(receiveBuffer[8] & 0x08 ? "Y" : " ");
-        Serial.print(receiveBuffer[8] & 0x02 ? "X" : " ");
-        Serial.print("   ");
-        Serial.println(receiveBuffer[8] & 0x04 ? "B" : " ");
-        Serial.print("       ");
-        Serial.println(receiveBuffer[8] & 0x01 ? "A" : " ");
-        Serial.println();
-
-        // Other Buttons
-        Serial.println("Other Buttons:");
-        Serial.print("LB: "); Serial.print(receiveBuffer[8] & 0x10 ? "ON " : "OFF");
-        Serial.print("\tRB: "); Serial.println(receiveBuffer[8] & 0x20 ? "ON" : "OFF");
-        Serial.print("Back: "); Serial.print(receiveBuffer[8] & 0x40 ? "ON " : "OFF");
-        Serial.print("\tStart: "); Serial.println(receiveBuffer[8] & 0x80 ? "ON" : "OFF");
-        Serial.println();
-
-        // On-screen Buttons
-        Serial.println("\nOn-screen Buttons:");
-        uint8_t buttons1 = receiveBuffer[10];
-        uint8_t buttons2 = receiveBuffer[11];
-        
-        if (buttons1 & 0x01) Serial.println("Perch");
-        if (buttons1 & 0x02) Serial.println("Standby");
-        if (buttons1 & 0x04) Serial.println("Active");
-        if (buttons1 & 0x08) Serial.println("Button 4");
-        if (buttons1 & 0x10) Serial.println("Button 5");
-        if (buttons1 & 0x20) Serial.println("Button 6");
-        if (buttons1 & 0x40) Serial.println("Button 7");
-        if (buttons1 & 0x80) Serial.println("Button 8");
-        if (buttons2 & 0x01) Serial.println("Button 9");
-        if (buttons2 & 0x02) Serial.println("Button 10");
-        Serial.println("\n");
+        // Reset for next packet
+        receiveIndex = 0;
     }
 
 public:
     void begin() {
-        Serial.begin(115200);  // USB Serial for debug
-        while (!Serial && millis() < 3000) {
-            delay(100);
-        }
-        
+        // Initialize pins
         pinMode(LED_PIN, OUTPUT);
+        digitalWriteFast(LED_PIN, LOW);
         
-        Serial.println("\nXBee Controller Monitor");
-        Serial.println("Starting up in Perch Mode...");
+        // Start serial ports
+        Serial.begin(115200);  // Debug console
+        Serial2.begin(57600);  // XBee
         
-        // Start XBee serial at 57600 baud
-        Serial2.begin(57600);
+        // Configure Serial2 pins
+        Serial2.setRX(RX2_PIN);
+        Serial2.setTX(TX2_PIN);
         
-        // Send initial status immediately
-        delay(100);  // Brief delay to let XBee initialize
-        sendStatusPacket();
+        clearScreen();
+        Serial.println("Steam Duck Controller Ready");
     }
-    
+
     void update() {
-        uint32_t now = millis();
-        
-        // Check for connection timeout
-        if (now - lastByteTime > 1000) {  // No data for 1 second
-            if (currentMode != 'Q') {
-                currentMode = 'Q';
-                requestedMode = 0;  // Clear any pending mode change
-                needsFullDisplay = true;
-                showStatus();
-                sendStatusPacket();  // Immediately send disconnected status
-            }
-        }
-        
-        // Send status packet every 100ms for more responsive UI
-        if (now - lastStatusTime >= 100) {
-            lastStatusTime = now;
-            sendStatusPacket();
-        }
-        
-        // Check for mode changes
-        checkMode();
-        
-        // Update packet counter
-        static uint32_t lastCountTime = 0;
-        if (now - lastCountTime >= 1000) {
-            lastCountTime = now;
-            needsFullDisplay = true;
-            packetCount = 0;
-        }
-        
-        // Reset packet if we haven't received data for a while
-        if (inPacket && (now - lastByteTime > 100)) {
-            inPacket = false;
-            receiveIndex = 0;
-        }
-        
-        // Process any received bytes
+        // Read available bytes
         while (Serial2.available()) {
             uint8_t byte = Serial2.read();
-            lastByteTime = now;
+            lastByteTime = millis();
             
-            if (!inPacket) {
-                if (byte == PACKET_START) {
-                    inPacket = true;
-                    receiveIndex = 0;
-                    receiveBuffer[receiveIndex++] = byte;
-                    digitalWrite(LED_PIN, HIGH);
-                }
-            } else {
+            // Start of new packet
+            if (byte == PACKET_START) {
+                receiveIndex = 0;
+                inPacket = true;
+            }
+            
+            // Store byte if we're in a packet
+            if (inPacket && receiveIndex < PACKET_SIZE) {
                 receiveBuffer[receiveIndex++] = byte;
                 
-                if (receiveIndex >= PACKET_SIZE) {
-                    if (receiveBuffer[PACKET_SIZE-1] == PACKET_END) {
-                        packetCount++;
-                        checkMode();
-                        showStatus();
-                    }
-                    
+                // Process packet if complete
+                if (receiveIndex == PACKET_SIZE) {
+                    processPacket();
                     inPacket = false;
-                    digitalWrite(LED_PIN, LOW);
+                    receiveIndex = 0;
                 }
             }
+        }
+        
+        // Reset if we haven't received data for too long
+        if (lastByteTime > 0 && millis() - lastByteTime > 1000) {
+            inPacket = false;
+            receiveIndex = 0;
+            needsFullDisplay = true;
         }
     }
 };

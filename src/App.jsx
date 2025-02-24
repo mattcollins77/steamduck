@@ -18,7 +18,7 @@ function App() {
     rightY: 0
   });
   const [isTransmitting, setIsTransmitting] = useState(false);
-  const transmitQueue = useRef([]);
+  const transmitQueueRef = useRef([]);
   const lastTransmitTimeRef = useRef(0);
   const lastStatusTimeRef = useRef(Date.now());
   const robotViewerRef = useRef(null);
@@ -44,7 +44,7 @@ function App() {
     onScreenButtons: Array(10).fill(false)
   });
   const [writer, setWriter] = useState(null);
-  const [robotMode, setRobotMode] = useState('P'); // Default to Perch mode until we hear from robot
+  const [robotMode, setRobotMode] = useState('P');  // Default to Perch mode until we hear from robot
   const [requestedMode, setRequestedMode] = useState(null);
   const [showPerchConfirm, setShowPerchConfirm] = useState(false);
   const [showModeTimeout, setShowModeTimeout] = useState(false);
@@ -76,6 +76,8 @@ function App() {
 
   const PACKET_START = 0xAA;
   const PACKET_END = 0x55;
+  const PACKET_LENGTH = 19;  // Start + Seq + 15 data bytes + Checksum + End
+  const packetSequence = useRef(0);
 
   const handleModeChange = (newMode) => {
     if (robotMode === 'S' && newMode === 'P') {
@@ -106,30 +108,177 @@ function App() {
     }, 3000);
   };
 
-  const sendJoystickData = useCallback(() => {
-    if (!serialPort || !gamepadState) return;
+  // Initialize gamepad API
+  useEffect(() => {
+    console.log('Initializing gamepad support...');
+    
+    // Some browsers require a button press or explicit check to enable gamepads
+    const checkGamepads = () => {
+      const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+      const gamepad = gamepads[0];
+      
+     
+    };
 
-    const packet = new Uint8Array(16); // Increased size for mode
+    // Check for initial gamepads
+    checkGamepads();
+
+    // Add gamepad connection event listeners
+    const handleGamepadConnected = (e) => {
+      console.log('Gamepad connected:', {
+        id: e.gamepad.id,
+        index: e.gamepad.index,
+        mapping: e.gamepad.mapping,
+        axes: e.gamepad.axes.length,
+        buttons: e.gamepad.buttons.length
+      });
+      checkGamepads();
+    };
+
+    const handleGamepadDisconnected = (e) => {
+      console.log('Gamepad disconnected:', {
+        id: e.gamepad.id,
+        index: e.gamepad.index
+      });
+      if (gamepadState !== null) {
+        setGamepadState(null);
+      }
+      checkGamepads();
+    };
+
+    window.addEventListener('gamepadconnected', handleGamepadConnected);
+    window.addEventListener('gamepaddisconnected', handleGamepadDisconnected);
+
+    // Check periodically for gamepads (some browsers need this)
+    const initInterval = setInterval(checkGamepads, 1000);
+
+    // Try to force a gamepad scan (some browsers need this)
+    const scanGamepad = () => {
+      if (navigator.getGamepads) {
+        navigator.getGamepads();
+      }
+    };
+    window.addEventListener('mousemove', scanGamepad);
+    window.addEventListener('keydown', scanGamepad);
+
+    return () => {
+      window.removeEventListener('gamepadconnected', handleGamepadConnected);
+      window.removeEventListener('gamepaddisconnected', handleGamepadDisconnected);
+      window.removeEventListener('mousemove', scanGamepad);
+      window.removeEventListener('keydown', scanGamepad);
+      clearInterval(initInterval);
+    };
+  }, []);
+
+  // Track timing and transmission
+  const lastTimestampRef = useRef(null);
+  const transmitCountRef = useRef(0);
+
+  // Log transmission stats every second
+  useEffect(() => {
+    const statsInterval = setInterval(() => {
+      const now = performance.now();
+      const delta = now - lastTransmitTimeRef.current;
+      if (transmitCountRef.current > 0) {
+        console.log('Transmission stats:', {
+          packetsPerSecond: (transmitCountRef.current * 1000) / delta,
+          queueLength: transmitQueueRef.current.length,
+          timeSinceLastTransmit: delta
+        });
+      }
+      transmitCountRef.current = 0;
+      lastTransmitTimeRef.current = now;
+    }, 1000);
+
+    return () => clearInterval(statsInterval);
+  }, []);
+
+  // Poll for gamepad updates at 60Hz
+  useEffect(() => {
+    if (!gamepadState) return;
+
+    const pollInterval = setInterval(() => {
+      const gamepad = navigator.getGamepads()[0];
+      if (gamepad?.connected && gamepad.timestamp !== lastTimestampRef.current) {
+        setGamepadState(gamepad);
+        lastTimestampRef.current = gamepad.timestamp;
+      }
+    }, 16); // 60Hz
+
+    return () => clearInterval(pollInterval);
+  }, [gamepadState]);
+
+  // Serial data transmission at 250Hz
+  useEffect(() => {
+    if (!serialPort || !isTransmitting || !writerRef.current) {
+      console.debug('Transmit not ready:', {
+        hasPort: !!serialPort,
+        isTransmitting,
+        hasWriter: !!writerRef.current
+      });
+      return;
+    }
+
+    console.log('Starting transmit interval with writer');
+    const writer = writerRef.current;
+
+    const transmitInterval = setInterval(() => {
+      if (transmitQueueRef.current.length > 0) {
+        const packet = transmitQueueRef.current.shift();
+        writer.write(packet).then(() => {
+          transmitCountRef.current++;
+        }).catch(error => {
+          console.error('Error writing packet:', error);
+          if (error.message.includes('closed')) {
+            setSerialPort(null);
+          }
+        });
+      }
+    }, 4); // 250Hz
+
+    return () => {
+      console.log('Stopping transmit interval');
+      clearInterval(transmitInterval);
+    };
+  }, [serialPort, isTransmitting]);
+
+  // Queue gamepad data when state changes
+  useEffect(() => {
+    if (!gamepadState || !serialPort || !isTransmitting) {
+      return;
+    }
+
+    // Drop if queue is getting too large
+    if (transmitQueueRef.current.length >= 4) {
+      console.debug('Queue full, dropping packet');
+      return;
+    }
+
+    const packet = new Uint8Array(PACKET_LENGTH);
     packet[0] = PACKET_START;
 
+    // Increment and wrap sequence number (0-255)
+    packetSequence.current = (packetSequence.current + 1) & 0xFF;
+    packet[1] = packetSequence.current;
+
     // Analog sticks (0-255)
-    packet[1] = Math.round(((gamepadState.axes[0] + 1) / 2) * 255);  // Left X
-    packet[2] = Math.round(((gamepadState.axes[1] + 1) / 2) * 255);  // Left Y
-    packet[3] = Math.round(((gamepadState.axes[2] + 1) / 2) * 255);  // Right X
-    packet[4] = Math.round(((gamepadState.axes[3] + 1) / 2) * 255);  // Right Y
+    packet[2] = Math.round(((gamepadState.axes[0] + 1) / 2) * 255);  // Left X
+    packet[3] = Math.round(((gamepadState.axes[1] + 1) / 2) * 255);  // Left Y
+    packet[4] = Math.round(((gamepadState.axes[2] + 1) / 2) * 255);  // Right X
+    packet[5] = Math.round(((gamepadState.axes[3] + 1) / 2) * 255);  // Right Y
 
     // Triggers (0-255)
-    packet[5] = Math.round(gamepadState.buttons[6]?.value * 255);     // Left Trigger
-    packet[6] = Math.round(gamepadState.buttons[7]?.value * 255);     // Right Trigger
+    packet[6] = Math.round(gamepadState.buttons[6]?.value * 255);     // Left Trigger
+    packet[7] = Math.round(gamepadState.buttons[7]?.value * 255);     // Right Trigger
 
     // D-Pad (as individual bits)
-    packet[7] = ((gamepadState.buttons[12]?.pressed ? 1 : 0) << 0) | // Up
+    packet[8] = ((gamepadState.buttons[12]?.pressed ? 1 : 0) << 0) | // Up
                 ((gamepadState.buttons[13]?.pressed ? 1 : 0) << 1) | // Down
                 ((gamepadState.buttons[14]?.pressed ? 1 : 0) << 2) | // Left
                 ((gamepadState.buttons[15]?.pressed ? 1 : 0) << 3);  // Right
 
     // Face buttons and shoulders
-    packet[8] = ((gamepadState.buttons[0]?.pressed ? 1 : 0) << 0) |  // A
+    packet[9] = ((gamepadState.buttons[0]?.pressed ? 1 : 0) << 0) |  // A
                 ((gamepadState.buttons[1]?.pressed ? 1 : 0) << 1) |  // B
                 ((gamepadState.buttons[2]?.pressed ? 1 : 0) << 2) |  // X
                 ((gamepadState.buttons[3]?.pressed ? 1 : 0) << 3) |  // Y
@@ -139,117 +288,76 @@ function App() {
                 ((gamepadState.buttons[9]?.pressed ? 1 : 0) << 7);   // Start
 
     // Stick clicks
-    packet[9] = ((gamepadState.buttons[10]?.pressed ? 1 : 0) << 0) | // Left Stick
-                ((gamepadState.buttons[11]?.pressed ? 1 : 0) << 1);  // Right Stick
+    packet[10] = ((gamepadState.buttons[10]?.pressed ? 1 : 0) << 0) | // Left Stick
+                 ((gamepadState.buttons[11]?.pressed ? 1 : 0) << 1);  // Right Stick
 
-    // On-screen buttons (10 bits)
-    packet[10] = (onScreenButtons.slice(0, 8).map((b, i) => (b ? 1 : 0) << i).reduce((a, b) => a | b, 0));
-    packet[11] = (onScreenButtons.slice(8, 10).map((b, i) => (b ? 1 : 0) << i).reduce((a, b) => a | b, 0));
+    // On-screen buttons (10 bits total)
+    packet[11] = onScreenButtons.slice(0, 8).reduce((acc, val, idx) => acc | ((val ? 1 : 0) << idx), 0);  // First 8 buttons
+    packet[12] = onScreenButtons.slice(8, 10).reduce((acc, val, idx) => acc | ((val ? 1 : 0) << idx), 0); // Last 2 buttons
 
-    // Joint control data
-    packet[12] = motorEnabled ? 1 : 0;  // Motor enable flag
-    packet[13] = selectedJoint;  // Joint index (0-15)
-    // Convert slider value (-1 to 1) to byte range (0-255)
-    packet[14] = Math.round((sliderValue + 1) * 127.5);  // Joint position
+    // Motor control data
+    packet[13] = motorEnabled ? 1 : 0;  // Motor enable flag
+    packet[14] = selectedJoint;  // Joint index (0-15)
+    packet[15] = Math.round((sliderValue + 1) * 127.5);  // Joint position
 
     // Add requested mode or current mode
-    packet[15] = requestedMode ? requestedMode.charCodeAt(0) : robotMode.charCodeAt(0);
+    packet[16] = requestedMode ? requestedMode.charCodeAt(0) : robotMode.charCodeAt(0);
+
+    // Calculate checksum (XOR of all bytes except start, checksum, and end)
+    let checksum = 0;
+    for (let i = 1; i < PACKET_LENGTH - 2; i++) {
+      checksum ^= packet[i];
+    }
+    packet[PACKET_LENGTH - 2] = checksum;
     
-    packet[packet.length - 1] = PACKET_END;
+    packet[PACKET_LENGTH - 1] = PACKET_END;
 
     // Add to transmit queue
-    transmitQueue.current.push(packet);
-  }, [serialPort, gamepadState, onScreenButtons, motorEnabled, selectedJoint, sliderValue, robotMode, requestedMode]);
+    transmitQueueRef.current.push(packet);
+    console.debug('Queued packet:', {
+      seq: packet[1],
+      leftStick: [packet[2], packet[3]],
+      rightStick: [packet[4], packet[5]],
+      triggers: [packet[6], packet[7]],
+      dpad: packet[8],
+      buttons: packet[9],
+      queueLength: transmitQueueRef.current.length
+    });
+  }, [gamepadState, onScreenButtons, motorEnabled, selectedJoint, sliderValue, robotMode, requestedMode, serialPort, isTransmitting]);
 
-  // Transmit data at fixed rate
+  // Enable transmission when port and writer are ready
   useEffect(() => {
-    const now = Date.now();
-    if (now - lastTransmitTimeRef.current < 33) { // Enforce 30Hz max rate
-      return;
-    }
-    lastTransmitTimeRef.current = now;
-
-    sendJoystickData();
-  }, [sendJoystickData]);
-
-  // Gamepad polling
-  useEffect(() => {
-    const pollGamepad = () => {
-      const gamepads = navigator.getGamepads();
-      const gamepad = gamepads[0]; // Using first gamepad
-
-      if (gamepad) {
-        // Ensure we have valid data
-        const axes = Array.from(gamepad.axes || []).map(v => Number(v) || 0);
-        while (axes.length < 4) axes.push(0);
-        
-        const buttons = Array.from(gamepad.buttons || []).map(b => ({
-          pressed: Boolean(b?.pressed),
-          value: Number(b?.value) || 0
-        }));
-        while (buttons.length < 16) buttons.push({ pressed: false, value: 0 });
-        
-        setGamepadState({
-          axes,
-          buttons
-        });
+    const checkWriter = async () => {
+      if (serialPort) {
+        try {
+          if (!writerRef.current) {
+            console.log("Getting writer...");
+            const writer = serialPort.writable.getWriter();
+            writerRef.current = writer;
+            console.log("Writer acquired");
+          }
+          console.log('Enabling transmission - port and writer ready');
+          setIsTransmitting(true);
+        } catch (error) {
+          console.error('Error getting writer:', error);
+          setIsTransmitting(false);
+        }
+      } else {
+        if (writerRef.current) {
+          try {
+            writerRef.current.releaseLock();
+          } catch (e) {
+            console.debug('Error releasing writer lock:', e);
+          }
+          writerRef.current = null;
+        }
+        console.log('Disabling transmission - no port');
+        setIsTransmitting(false);
       }
     };
-
-    const interval = setInterval(pollGamepad, 16); // 60Hz polling
-    return () => clearInterval(interval);
-  }, []);
-
-  const readSerialData = async (port) => {
-    let reader;
-    try {
-      while (port.readable) {
-        reader = port.readable.getReader();
-        try {
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) {
-              console.log('Serial read complete');
-              break;
-            }
-            if (value) {
-              const textData = new TextDecoder().decode(value);
-              try {
-                const parsedData = JSON.parse(textData);
-                if (parsedData.motors) {
-                  robotViewerRef.current?.updateJoints(parsedData.motors);
-                }
-                if (parsedData.sensors) {
-                  const imuSensor = parsedData.sensors.find(s => s.name === "imu");
-                  if (imuSensor) {
-                    robotViewerRef.current?.updateOrientation(imuSensor);
-                  }
-                }
-              } catch (parseError) {
-                console.debug("Error parsing serial data:", parseError);
-              }
-            }
-          }
-        } catch (readError) {
-          console.error('Error reading from serial:', readError);
-        } finally {
-          reader.releaseLock();
-        }
-      }
-    } catch (error) {
-      console.error('Fatal error in serial connection:', error);
-    } finally {
-      if (reader?.releaseLock) {
-        try {
-          reader.releaseLock();
-        } catch (e) {
-          console.debug('Error releasing reader lock:', e);
-        }
-      }
-      setSerialPort(null);
-    }
-    console.log('Serial read loop ended');
-  };
+    
+    checkWriter();
+  }, [serialPort]);
 
   const connectControl = useCallback(async () => {
     try {
@@ -258,22 +366,56 @@ function App() {
         return;
       }
 
-      console.log("Requesting serial port...");
-      const port = await navigator.serial.requestPort({
+      // Get list of all available ports first
+      console.log("Getting list of all available ports...");
+      const ports = await navigator.serial.getPorts();
+      
+      // Log all available ports
+      for (const port of ports) {
+        const info = port.getInfo();
+        console.log("Available port:", {
+          vendorId: info.usbVendorId?.toString(16),
+          productId: info.usbProductId?.toString(16),
+          manufacturer: info.manufacturer,
+          serialNumber: info.serialNumber
+        });
+      }
+
+      // Only look for FTDI device with exact vendor/product IDs
+      console.log("Requesting FTDI device with vendorId=0x0403, productId=0x6015");
+      const selectedPort = await navigator.serial.requestPort({
         filters: [{
-          usbVendorId: 0x0403,
-          usbProductId: 0x6015
+          usbVendorId: 0x0403,  // FTDI
+          usbProductId: 0x6015  // FT231X USB UART
         }]
       });
 
-      await port.open({ baudRate: 57600 });
-      setSerialPort(port);
+      // Double check we got the right device
+      const info = selectedPort.getInfo();
+      console.log("Selected device:", {
+        vendorId: info.usbVendorId?.toString(16),
+        productId: info.usbProductId?.toString(16),
+        manufacturer: info.manufacturer,
+        serialNumber: info.serialNumber
+      });
 
-      const writer = port.writable.getWriter();
-      writerRef.current = writer;
-      setWriter(writer);
+      // Strict validation that we got the right device
+      if (info.usbVendorId !== 0x0403 || info.usbProductId !== 0x6015) {
+        throw new Error(`Wrong device selected. Expected FTDI (0x0403/0x6015) but got ${info.usbVendorId?.toString(16)}/${info.usbProductId?.toString(16)}`);
+      }
 
-      readSerialData(port);
+      console.log("Confirmed FTDI device, opening port...");
+      await selectedPort.open({ 
+        baudRate: 57600,
+        dataBits: 8,
+        stopBits: 1,
+        parity: "none",
+        flowControl: "none"
+      });
+      
+      console.log("Port opened successfully");
+      setSerialPort(selectedPort);
+      console.log("Starting serial data read loop...");
     } catch (error) {
       console.error('Error connecting to serial:', error);
       setSerialPort(null);
@@ -286,6 +428,98 @@ function App() {
         writerRef.current = null;
       }
     }
+  }, [serialPort]);
+
+  // Serial port connection and read loop
+  useEffect(() => {
+    if (!serialPort) return;
+
+    let isReading = true;
+    
+    const startReading = async () => {
+      const portInfo = serialPort.getInfo();
+      console.log("Starting read loop for port:", {
+        vendorId: portInfo.usbVendorId?.toString(16),
+        productId: portInfo.usbProductId?.toString(16),
+        manufacturer: portInfo.manufacturer,
+        serialNumber: portInfo.serialNumber
+      });
+
+      // Verify we're still connected to the right device
+      if (portInfo.usbVendorId !== 0x0403 || portInfo.usbProductId !== 0x6015) {
+        console.error("Wrong device in read loop! Expected FTDI (0x0403/0x6015) but got",
+          portInfo.usbVendorId?.toString(16), "/", portInfo.usbProductId?.toString(16));
+        setSerialPort(null);
+        return;
+      }
+
+      try {
+        while (serialPort.readable && isReading) {
+          const reader = serialPort.readable.getReader();
+          
+          try {
+            console.log("Reader acquired, starting read loop");
+            while (isReading) {
+              const { value, done } = await reader.read();
+              if (done || !isReading) break;
+              
+              if (value) {
+                // Log the raw bytes for debugging
+                console.log('Received bytes:', Array.from(value).map(b => b.toString(16)));
+                try {
+                  const text = new TextDecoder().decode(value);
+                  console.log('Received text:', text);
+                } catch (parseError) {
+                  console.debug("Error decoding data:", parseError);
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error in read operation:', error);
+          } finally {
+            try {
+              reader.releaseLock();
+              console.log("Reader released");
+            } catch (e) {
+              console.debug('Error releasing reader:', e);
+            }
+          }
+          
+          if (!isReading) break;
+        }
+      } catch (error) {
+        console.error('Fatal error in serial read loop:', error);
+      }
+      
+      console.log('Read loop ended');
+    };
+
+    // Start the read loop
+    startReading().catch(error => {
+      console.error('Error starting read loop:', error);
+    });
+
+    // Cleanup function
+    return () => {
+      console.log('Cleaning up serial connection...');
+      isReading = false;
+      
+      if (writerRef.current) {
+        try {
+          writerRef.current.releaseLock();
+          console.log('Writer released');
+        } catch (e) {
+          console.debug('Error releasing writer:', e);
+        }
+        writerRef.current = null;
+      }
+      
+      if (serialPort) {
+        serialPort.close().catch(e => {
+          console.debug('Error closing port:', e);
+        });
+      }
+    };
   }, [serialPort]);
 
   const disconnectControl = useCallback(() => {
@@ -304,65 +538,20 @@ function App() {
     }
   }, [serialPort]);
 
-  // Process transmit queue
-  useEffect(() => {
-    if (!writerRef.current || !serialPort) return;
-
-    const transmitInterval = setInterval(async () => {
-      if (transmitQueue.current.length === 0 || isTransmitting) return;
-      
-      setIsTransmitting(true);
-      try {
-        const packet = transmitQueue.current.shift();
-        await writerRef.current.write(packet);
-      } catch (error) {
-        console.error('Error writing to serial:', error);
-        if (error.message.includes('closed')) {
-          setSerialPort(null);
-        }
-      } finally {
-        setIsTransmitting(false);
-      }
-    }, 10);
-
-    return () => clearInterval(transmitInterval);
-  }, [serialPort, isTransmitting]);
-
-  // Cleanup when component unmounts
-  useEffect(() => {
-    return () => {
-      if (readerRef.current) {
-        try {
-          readerRef.current.releaseLock();
-        } catch (e) {
-          console.debug('Error releasing reader lock:', e);
-        }
-        readerRef.current = null;
-      }
-      if (writerRef.current) {
-        try {
-          writerRef.current.releaseLock();
-        } catch (e) {
-          console.debug('Error releasing writer lock:', e);
-        }
-        writerRef.current = null;
-      }
-      if (serialPort) {
-        serialPort.close().catch(console.error);
-      }
-    };
-  }, [serialPort]);
-
   const handleButtonPress = (index) => {
-    const newButtons = [...onScreenButtons];
-    newButtons[index] = true;
-    setOnScreenButtons(newButtons);
+    setOnScreenButtons(buttons => {
+      const newButtons = [...buttons];
+      newButtons[index] = true;
+      return newButtons;
+    });
   };
 
   const handleButtonRelease = (index) => {
-    const newButtons = [...onScreenButtons];
-    newButtons[index] = false;
-    setOnScreenButtons(newButtons);
+    setOnScreenButtons(buttons => {
+      const newButtons = [...buttons];
+      newButtons[index] = false;
+      return newButtons;
+    });
   };
 
   // Clean up timeout on unmount
@@ -521,6 +710,64 @@ function App() {
     }
   }, [robotData]);
 
+  // Cleanup when component unmounts
+  useEffect(() => {
+    return () => {
+      if (readerRef.current) {
+        try {
+          readerRef.current.releaseLock();
+        } catch (e) {
+          console.debug('Error releasing reader lock:', e);
+        }
+        readerRef.current = null;
+      }
+      if (writerRef.current) {
+        try {
+          writerRef.current.releaseLock();
+        } catch (e) {
+          console.debug('Error releasing writer lock:', e);
+        }
+        writerRef.current = null;
+      }
+      if (serialPort) {
+        serialPort.close().catch(console.error);
+      }
+    };
+  }, [serialPort]);
+
+  // Serial data transmission
+  useEffect(() => {
+    if (!serialPort || !isTransmitting || !writerRef.current) {
+      console.debug('Transmit not ready:', {
+        hasPort: !!serialPort,
+        isTransmitting,
+        hasWriter: !!writerRef.current
+      });
+      return;
+    }
+
+    console.log('Starting transmit interval with writer');
+    const writer = writerRef.current;
+    const transmitInterval = setInterval(() => {
+      // Process all queued packets
+      while (transmitQueueRef.current.length > 0) {
+        const packet = transmitQueueRef.current.shift();
+        writer.write(packet).catch(error => {
+          console.error('Error writing from queue:', error);
+          if (error.message.includes('closed')) {
+            setSerialPort(null);
+            return;
+          }
+        });
+      }
+    }, 4); // ~250Hz
+
+    return () => {
+      console.log('Stopping transmit interval');
+      clearInterval(transmitInterval);
+    };
+  }, [serialPort, isTransmitting]);
+
   // Update UI to include debug output
   return (
     <div className="layout-container">
@@ -528,7 +775,7 @@ function App() {
         <div className="control-section">
         
           <div className="button-grid">
-            {Array.from({ length: 10 }, (_, i) => (
+            {[...Array(10)].map((_, i) => (
               <button
                 key={i}
                 className={`button ${onScreenButtons[i] ? 'active' : ''}`}
