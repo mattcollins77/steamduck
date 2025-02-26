@@ -464,14 +464,26 @@ function App() {
               if (done || !isReading) break;
               
               if (value) {
-                // Log the raw bytes for debugging
-                console.log('Received bytes:', Array.from(value).map(b => b.toString(16)));
-                try {
-                  const text = new TextDecoder().decode(value);
-                  console.log('Received text:', text);
-                } catch (parseError) {
-                  console.debug("Error decoding data:", parseError);
+                // Process response packet from Teensy
+                if (value.length >= 5 && value[0] === 0xBB && value[4] === 0x66) {
+                  const mode = String.fromCharCode(value[1]);
+                  const status = value[2];
+                  const checksum = value[3];
+                  
+                  // Validate checksum
+                  if ((value[1] ^ value[2]) === checksum) {
+                    console.debug('Received valid mode from Teensy:', mode);
+                    setRobotMode(mode);
+                    
+                    // Clear requested mode if it matches what we received
+                    if (mode === requestedMode) {
+                      setRequestedMode(null);
+                    }
+                  }
                 }
+                
+                // Log raw data for debugging
+                console.debug('Received bytes:', Array.from(value).map(b => b.toString(16)));
               }
             }
           } catch (error) {
@@ -499,28 +511,11 @@ function App() {
       console.error('Error starting read loop:', error);
     });
 
-    // Cleanup function
     return () => {
-      console.log('Cleaning up serial connection...');
+      console.log('Stopping read loop');
       isReading = false;
-      
-      if (writerRef.current) {
-        try {
-          writerRef.current.releaseLock();
-          console.log('Writer released');
-        } catch (e) {
-          console.debug('Error releasing writer:', e);
-        }
-        writerRef.current = null;
-      }
-      
-      if (serialPort) {
-        serialPort.close().catch(e => {
-          console.debug('Error closing port:', e);
-        });
-      }
     };
-  }, [serialPort]);
+  }, [serialPort, requestedMode]);
 
   const disconnectControl = useCallback(() => {
     console.log('Disconnecting control...');
@@ -768,71 +763,123 @@ function App() {
     };
   }, [serialPort, isTransmitting]);
 
-  // Update UI to include debug output
+  // Process received data
+  useEffect(() => {
+    if (!serialPort || !readerRef.current) return;
+
+    const processResponsePacket = (data) => {
+      // Response packet format: BB + Mode + Status + Checksum + 66
+      if (data.length >= 5 && data[0] === 0xBB && data[4] === 0x66) {
+        const mode = String.fromCharCode(data[1]);
+        const status = data[2];
+        
+        // Validate checksum
+        const checksum = data[1] ^ data[2];
+        if (checksum === data[3]) {
+          setTeensyMode(mode);
+          console.debug('Received mode from Teensy:', mode);
+        }
+      }
+    };
+
+    const readLoop = async () => {
+      try {
+        while (true) {
+          const { value, done } = await readerRef.current.read();
+          if (done) {
+            console.log('Reader closed');
+            break;
+          }
+          
+          // Process response packets
+          if (value.length >= 5) {
+            processResponsePacket(value);
+          }
+        }
+      } catch (error) {
+        console.error('Error in read loop:', error);
+        setSerialPort(null);
+      }
+    };
+
+    readLoop();
+
+    return () => {
+      console.log('Stopping read loop');
+    };
+  }, [serialPort]);
+
+  // Get human-readable mode description
+  const getModeDescription = (mode) => {
+    switch (mode) {
+      case 'P': return 'Perch Mode';
+      case 'S': return 'Standby Mode';
+      case 'A': return 'Active Mode';
+      default: return `Unknown Mode (${mode})`;
+    }
+  };
+
   return (
     <div className="layout-container">
       <div className="side-panel left-panel">
-        <div className="control-section">
+      
+        <div className="button-grid">
+          {[...Array(10)].map((_, i) => (
+            <button
+              key={i}
+              className={`button ${onScreenButtons[i] ? 'active' : ''}`}
+              onMouseDown={() => handleButtonPress(i)}
+              onMouseUp={() => handleButtonRelease(i)}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                handleButtonPress(i);
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonRelease(i);
+              }}
+            >
+              Action {i + 1}
+            </button>
+          ))}
+        </div>
         
-          <div className="button-grid">
-            {[...Array(10)].map((_, i) => (
-              <button
-                key={i}
-                className={`button ${onScreenButtons[i] ? 'active' : ''}`}
-                onMouseDown={() => handleButtonPress(i)}
-                onMouseUp={() => handleButtonRelease(i)}
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  handleButtonPress(i);
-                }}
-                onTouchEnd={(e) => {
-                  e.preventDefault();
-                  handleButtonRelease(i);
-                }}
+        {robotMode === 'P' && (
+          <div className="joint-controls">
+            <h5>Motor Test</h5>
+            <select 
+              value={selectedJoint} 
+              onChange={(e) => setSelectedJoint(Number(e.target.value))}
+              className="joint-select"
+            >
+              {joints.map((joint, index) => (
+                <option key={joint} value={index}>{joint}</option>
+              ))}
+            </select>
+            
+            <div className="slider-row">
+              <button 
+                className={`motor-button ${motorEnabled ? 'active' : ''}`}
+                onClick={() => setMotorEnabled(!motorEnabled)}
               >
-                Action {i + 1}
+                MOTOR {motorEnabled ? 'ON' : 'OFF'}
               </button>
-            ))}
-          </div>
-          
-          {robotMode === 'P' && (
-            <div className="joint-controls">
-              <h5>Motor Test</h5>
-              <select 
-                value={selectedJoint} 
-                onChange={(e) => setSelectedJoint(Number(e.target.value))}
-                className="joint-select"
-              >
-                {joints.map((joint, index) => (
-                  <option key={joint} value={index}>{joint}</option>
-                ))}
-              </select>
               
-              <div className="slider-row">
-                <button 
-                  className={`motor-button ${motorEnabled ? 'active' : ''}`}
-                  onClick={() => setMotorEnabled(!motorEnabled)}
-                >
-                  MOTOR {motorEnabled ? 'ON' : 'OFF'}
-                </button>
-                
-                <div className="slider-container">
-                  <input
-                    type="range"
-                    min="-1"
-                    max="1"
-                    step="0.01"
-                    value={sliderValue}
-                    onChange={(e) => setSliderValue(Number(e.target.value))}
-                    className="joint-slider"
-                  />
-                  <div className="slider-value">{sliderValue.toFixed(2)}</div>
-                </div>
+              <div className="slider-container">
+                <input
+                  type="range"
+                  min="-1"
+                  max="1"
+                  step="0.01"
+                  value={sliderValue}
+                  onChange={(e) => setSliderValue(Number(e.target.value))}
+                  className="joint-slider"
+                />
+                <div className="slider-value">{sliderValue.toFixed(2)}</div>
               </div>
             </div>
-          )}
-        </div>
-       
+          </div>
+        )}
       </div>
       <div className="main-panel">
         <div className="robot-viewer">
@@ -861,9 +908,9 @@ function App() {
             borderRadius: '6px'
           }}>
             <div className="mode-status" style={{ marginBottom: '8px' }}>
-              <span style={{fontSize: '16px', color: '#fff'}}>Current Mode: </span>
+              <span style={{fontSize: '16px', color: '#fff'}}>Current ModeA: </span>
               <span style={{fontSize: '24px', color: '#4ade80'}}>
-                {robotMode === 'P' ? 'Perch' : robotMode === 'S' ? 'Standby' : 'Active'}
+                {getModeDescription(robotMode)}
               </span>
               {requestedMode && (
                 <div className="mode-pending" >
@@ -871,46 +918,46 @@ function App() {
                 </div>
               )}
             </div>
-            {!requestedMode && (
-              <div className="mode-buttons" style={{ display: 'flex', gap: '6px' }}>
-                {robotMode === 'P' && (
-                  <button 
-                    className="mode-button"
-                    onClick={() => handleModeChange('S')}
-                    
-                  >
-                    Set to Standby
-                  </button>
-                )}
-                {robotMode === 'S' && (
-                  <>
-                    <button 
-                      className="mode-button"
-                      onClick={() => handleModeChange('A')}
-                     
-                    >
-                      Set to Active
-                    </button>
-                    <button 
-                      className="mode-button"
-                      onClick={() => handleModeChange('P')}
-                     
-                    >
-                      Set to Perch
-                    </button>
-                  </>
-                )}
-                {robotMode === 'A' && (
-                  <button 
-                    className="mode-button"
-                    onClick={() => handleModeChange('S')}
-                   
-                  >
-                    Set to Standby
-                  </button>
-                )}
-              </div>
-            )}
+            <div className="mode-display">
+            
+
+{!requestedMode && (
+  <div className="mode-buttons" style={{ display: 'flex', gap: '6px' }}>
+    {robotMode === 'P' && (
+      <button 
+        className="mode-button"
+        onClick={() => handleModeChange('S')}
+      >
+        Set to Standby
+      </button>
+    )}
+    {robotMode === 'S' && (
+      <>
+        <button 
+          className="mode-button"
+          onClick={() => handleModeChange('A')}
+        >
+          Set to Active
+        </button>
+        <button 
+          className="mode-button"
+          onClick={() => handleModeChange('P')}
+        >
+          Set to Perch
+        </button>
+      </>
+    )}
+    {robotMode === 'A' && (
+      <button 
+        className="mode-button"
+        onClick={() => handleModeChange('S')}
+      >
+        Set to Standby
+      </button>
+    )}
+  </div>
+)}
+            </div>
           </div>
 
           <div className="connection-panel" style={{
@@ -1106,3 +1153,83 @@ function App() {
 }
 
 export default App;
+
+<style jsx>{`
+  .mode-display {
+    padding: 15px;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    background: #1a1a1a;
+    color: #fff;
+    margin-bottom: 20px;
+  }
+
+  .mode-display h3 {
+    margin: 0 0 15px 0;
+    color: #fff;
+    font-size: 1.2em;
+  }
+
+  .mode-indicator {
+    padding: 12px;
+    border-radius: 6px;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 15px;
+    font-size: 1.1em;
+    text-transform: uppercase;
+  }
+
+  .mode-p {
+    background: #ffd700;
+    color: #000;
+  }
+
+  .mode-s {
+    background: #666;
+    color: #fff;
+  }
+
+  .mode-a {
+    background: #4ade80;
+    color: #000;
+  }
+
+  .mode-n {
+    background: #4caf50;
+    color: #fff;
+  }
+
+  .mode-w {
+    background: #2196f3;
+    color: #fff;
+  }
+
+  .mode-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .mode-button {
+    padding: 8px 16px;
+    border: 1px solid #4ade80;
+    border-radius: 4px;
+    background: transparent;
+    color: #4ade80;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .mode-button:hover:not(:disabled) {
+    background: #4ade80;
+    color: #000;
+  }
+
+  .mode-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    border-color: #666;
+    color: #666;
+  }
+`}</style>

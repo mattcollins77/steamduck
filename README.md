@@ -7,7 +7,7 @@ A control interface for the SteamDuck robot using the Steam Deck's gamepad contr
 - Steam Deck gamepad integration
 - Real-time robot visualization using URDF
 - SSH-based telemetry and debug data streaming
-- Serial communication with Teensy for robot control
+- Serial communication using XBee modules for wireless communication with the Teensy or Orin Nano for robot control
 - Mode switching (Perch, Standby, Active)
 - Motor testing interface
 - Debug output display
@@ -18,7 +18,8 @@ A control interface for the SteamDuck robot using the Steam Deck's gamepad contr
 - npm (v9 or higher)
 - Arduino IDE or PlatformIO for Teensy programming
 - Teensy 4.1 board support
-- XBee module (for wireless communication)
+- XBee S2 modules (2x for wireless communication)
+- Conda (for Orin Nano setup)
 
 ## Installation
 
@@ -32,7 +33,7 @@ cd steamduck
 ```bash
 npm install
 ```
-then run on dev with
+then run on dev machine with
  npm run electron:dev
 
 3. Build the Electron app:
@@ -40,22 +41,15 @@ then run on dev with
 npm run make -- --linux --x64 
 ```
 
-## Building and Installing on Steam Deck
 
-1. Build the application package:
-```bash
-npm run package
-```
+
 
 2. Copy the package to your Steam Deck:
 ```bash
 rsync -avc ./dist_electron/linux-unpacked/ deck@steamdeck:./Documents/steamduck
 ```
 
-3. On the Steam Deck, make the application executable:
-```bash
-chmod +x /home/deck/Applications/steamduck/steamduck
-```
+
 
 4. Add to Steam:
    - In Desktop Mode, open Steam
@@ -65,62 +59,75 @@ chmod +x /home/deck/Applications/steamduck/steamduck
 
 ## Teensy Setup
 
-1. Install required libraries:
-   - Arduino IDE: Install Teensyduino
-   - Install any additional required libraries
 
-2. Upload the code:
-   - Open `teensy/steam_duck_receiver/steam_duck_receiver.ino`
-   - Select Teensy 4.1 board
-   - Set CPU Speed to 600 MHz
-   - Upload the code
+## Orin Nano Setup
 
-3. XBee Configuration:
-   - Configure XBee modules in AP mode with matching PAN IDs
-   - Set baud rate to 57600
-   - Connect to Teensy pins:
-     - XBee DOUT -> Teensy RX2 (pin 15)
-     - XBee DIN -> Teensy TX2 (pin 14)
+1. Create and activate Conda environment:
+```bash
+conda create -n steamduck python=3.10
+conda activate steamduck
+```
+
+2. Install required packages:
+```bash
+conda install pyserial
+```
+
+3. Configure XBee:
+   - Connect XBee to Orin Nano via USB
+   - Note the serial port (usually `/dev/ttyUSB0` or similar)
+   - Update port in `orin/xbee_receiver.py` if needed
+
+4. Run the receiver:
+```bash
+cd orin
+chmod +x xbee_receiver.py
+./xbee_receiver.py
+```
+
+The receiver will:
+- Display incoming gamepad data
+- Process mode change requests
+- Send mode status back to the controller
+- Show packet statistics and timing
 
 ## Communication Protocol
 
-### Controller to Robot Packet Structure (16 bytes)
+### Controller to Robot Packet Structure (19 bytes)
 
 | Byte | Description | Values |
 |------|-------------|--------|
 | 0    | Start Byte | 0xAA |
-| 1    | Left Stick X | 0-255 (centered at 128) |
-| 2    | Left Stick Y | 0-255 (centered at 128) |
-| 3    | Right Stick X | 0-255 (centered at 128) |
-| 4    | Right Stick Y | 0-255 (centered at 128) |
-| 5    | Left Trigger | 0-255 |
-| 6    | Right Trigger | 0-255 |
-| 7    | D-Pad (bits) | Up(0), Down(1), Left(2), Right(3) |
-| 8    | Face Buttons (bits) | A(0), B(1), X(2), Y(3), LB(4), RB(5), Back(6), Start(7) |
-| 9    | Stick Clicks (bits) | Left(0), Right(1) |
-| 10   | On-screen Buttons 1 | Buttons 1-8 as bits |
-| 11   | On-screen Buttons 2 | Buttons 9-10 as bits |
-| 12   | Motor Enable | 0=off, 1=on |
-| 13   | Selected Joint | 0-15 |
-| 14   | Joint Position | 0-255 (centered at 128) |
-| 15   | Mode | 'P'=Perch, 'S'=Standby, 'A'=Active, 'Q'=Disconnected |
+| 1    | Sequence Number | 0-255 |
+| 2    | Left Stick X | 0-255 (centered at 128) |
+| 3    | Left Stick Y | 0-255 (centered at 128) |
+| 4    | Right Stick X | 0-255 (centered at 128) |
+| 5    | Right Stick Y | 0-255 (centered at 128) |
+| 6    | Left Trigger | 0-255 |
+| 7    | Right Trigger | 0-255 |
+| 8    | D-Pad (bits) | Up(0), Down(1), Left(2), Right(3) |
+| 9    | Face Buttons (bits) | A(0), B(1), X(2), Y(3), LB(4), RB(5), Back(6), Start(7) |
+| 10   | Stick Clicks (bits) | Left(0), Right(1) |
+| 11   | On-screen Buttons 1 | Buttons 1-8 as bits |
+| 12   | On-screen Buttons 2 | Buttons 9-10 as bits |
+| 13   | Motor Enable | 0=off, 1=on |
+| 14   | Selected Joint | 0-15 |
+| 15   | Joint Position | 0-255 (centered at 128) |
+| 16   | Mode | 'P'=Perch, 'S'=Standby, 'A'=Active |
+| 17   | Checksum | XOR of bytes 1-16 |
+| 18   | End Byte | 0x55 |
 
-### Robot to Controller JSON Format
+### Robot to Controller Response Packet (5 bytes)
 
-The robot sends JSON status messages every 100ms:
-```json
-{
-  "mode": "P",
-  "requested_mode": "S",
-  "motors": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-  "sensors": [{
-    "name": "imu",
-    "roll": 0,
-    "pitch": 0,
-    "yaw": 0
-  }]
-}
-```
+The robot sends status packets every 100ms:
+
+| Byte | Description | Values |
+|------|-------------|--------|
+| 0    | Start Byte | 0xBB |
+| 1    | Current Mode | 'P'=Perch, 'S'=Standby, 'A'=Active |
+| 2    | Status | Reserved for future use |
+| 3    | Checksum | XOR of bytes 1-2 |
+| 4    | End Byte | 0x66 |
 
 ## Mode Behavior
 
@@ -129,8 +136,7 @@ The robot sends JSON status messages every 100ms:
 - **Active (A)**: Full control enabled
 - **Disconnected (Q)**: No communication, joints relaxed
 
-Mode changes have a 1-second delay for safety. The robot will acknowledge the requested mode change immediately but wait 1 second before applying it.
+
 
 ## License
 
-MIT License - see LICENSE file for details

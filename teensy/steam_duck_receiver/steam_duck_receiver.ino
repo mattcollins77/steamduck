@@ -8,7 +8,10 @@ private:
 
     static constexpr uint8_t PACKET_START = 0xAA;
     static constexpr uint8_t PACKET_END = 0x55;
+    static constexpr uint8_t RESPONSE_START = 0xBB;
+    static constexpr uint8_t RESPONSE_END = 0x66;
     static constexpr size_t PACKET_SIZE = 19;  // Start + Seq + 15 data bytes + Checksum + End
+    static constexpr size_t RESPONSE_SIZE = 5;  // Start + Mode + Status + Checksum + End
     
     uint8_t receiveBuffer[PACKET_SIZE];
     size_t receiveIndex = 0;
@@ -123,6 +126,24 @@ private:
         }
     }
 
+    void sendResponse() {
+        uint8_t response[RESPONSE_SIZE];
+        response[0] = RESPONSE_START;
+        response[1] = currentMode;
+        response[2] = 0; // Status byte (reserved for future use)
+        
+        // Calculate checksum
+        uint8_t checksum = 0;
+        for (int i = 1; i < RESPONSE_SIZE - 2; i++) {
+            checksum ^= response[i];
+        }
+        response[RESPONSE_SIZE - 2] = checksum;
+        response[RESPONSE_SIZE - 1] = RESPONSE_END;
+        
+        // Send response
+        Serial2.write(response, RESPONSE_SIZE);
+    }
+
     void processPacket() {
         if (receiveIndex != PACKET_SIZE) return;
 
@@ -160,39 +181,14 @@ private:
         gamepadState.jointPosition = receiveBuffer[15];
         gamepadState.mode = (char)receiveBuffer[16];
 
-        // Print state for debugging
-        Serial.print("SEQ:");
-        Serial.print(sequence);
-        Serial.print(" L:(");
-        Serial.print(gamepadState.leftStickX);
-        Serial.print(",");
-        Serial.print(gamepadState.leftStickY);
-        Serial.print(") R:(");
-        Serial.print(gamepadState.rightStickX);
-        Serial.print(",");
-        Serial.print(gamepadState.rightStickY);
-        Serial.print(") T:(");
-        Serial.print(gamepadState.leftTrigger);
-        Serial.print(",");
-        Serial.print(gamepadState.rightTrigger);
-        Serial.print(") B:");
-        Serial.print(gamepadState.buttons, HEX);
-        Serial.print(" D:");
-        Serial.print(gamepadState.dpad, HEX);
-        Serial.print(" S:");
-        Serial.print(gamepadState.stickButtons, HEX);
-        Serial.print(" OSB:");
-        Serial.print(gamepadState.onScreenButtons1, HEX);
-        Serial.print(",");
-        Serial.print(gamepadState.onScreenButtons2, HEX);
-        Serial.print(" M:");
-        Serial.print(gamepadState.motorEnabled);
-        Serial.print(" J:");
-        Serial.print(gamepadState.selectedJoint);
-        Serial.print("=");
-        Serial.print(gamepadState.jointPosition);
-        Serial.print(" Mode:");
-        Serial.println(gamepadState.mode);
+        // Check for mode change request
+        if (gamepadState.mode != currentMode) {
+            requestedMode = gamepadState.mode;
+            modeChangeStartTime = millis();
+        }
+
+        // Send response after processing each packet
+        sendResponse();
 
         // Update timing and counts
         lastPacketTime = millis();
